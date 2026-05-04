@@ -1,0 +1,21 @@
+# Fichiers de configuration locaux
+lora_recipes.json
+
+# Dossier d'export par défaut
+output/
+
+# Fichiers de backup (créés par le script)
+*.bak
+
+# Dossiers virtuels et cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+.venv/
+
+# Fichiers système
+.DS_Store
+Thumbs.db
