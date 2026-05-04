@@ -1,4 +1,4 @@
-# 📊 Datasets Images EditSelect
+# **📊 Datasets Images EditSelect (v2.0)**
 
 <div align="center">
 
@@ -8,218 +8,112 @@
 
 LANGUAGES : FR / EN
 
-**Un gestionnaire et équilibreur de datasets avancé pour la préparation d'entraînements de modèles IA**
-
-[Installation](#-installation--lancement) • [Fonctionnalités](#-fonctionnalités-principales) • [Workflow](#-comment-ça-marche--workflow-recommandé)
+**An ultra-responsive local dataset manager and balancer for AI model training preparation (Flux, Qwen, SDXL, LoRA).**  
+[Installation](#bookmark=id.r78gz1o935wj) • [New in v2.0](#bookmark=id.k7st63vr03ju) • [Features](#bookmark=id.a21ym3xlglf5) • [Workflow](#bookmark=id.wsejnwy0fpx0)
 
 </div>
 
----
+## **🎯 About**
 
-## 🎯 À propos
+Built with **Gradio** and powered by native JavaScript injections for optimal performance, this tool allows you to **visualize, clean, analyze, and export** your image datasets. Far from a simple web interface, the application offers ergonomics worthy of true desktop software ("desktop-like"), designed to drastically speed up your data preparation workflow.
 
-Un gestionnaire et équilibreur de datasets avancé pour la préparation d'entraînements de modèles IA **(Flux, Qwen, SDXL, LoRA)**. Conçu avec **Gradio**, cet outil permet de **visualiser, nettoyer, analyser et exporter** vos datasets d'images avec une ergonomie exceptionnelle.
+## **📸 Interface Preview**
+![Datasets Images EditSelect - Vue Principale](https://github.com/NyxAwroo/Datasets-Images-EditSelect/blob/main/screenshots%20demo/Firefox_Screenshot_2026-05-04T14-19-20.248Z.png)
 
----
 
-## 📸 Galerie & Aperçu
+## **🚀 Major New Features in v2.0**
 
-### 🎬 Interface Principale
+This update completely transforms the user experience through extensive JavaScript optimizations and full compatibility with Gradio 4+.
 
-![Datasets Images EditSelect - Vue Principale](https://github.com/BC8069EA84/Datasets-Images-EditSelect/raw/main/screenshots%20demo/2026-05-04%2002_23_18-Datasets%20Images%20EditSelect%20%E2%80%94%20Mozilla%20Firefox.png)
+### **🖱️ "Windows-Style" Navigation**
 
-### 🖼️ Galerie Complète
+* **Instant selection (zero blinking):** Processing is now 100% JavaScript.  
+* **Native shortcuts:** Support for \[Ctrl \+ Click\] (add/remove), \[Shift \+ Click\] (range selection), and \[Ctrl \+ A\] (select all).  
+* **Context Menu (Right Click):** Quick actions directly on gallery images (Save, Add to stats, Clear selection).
 
-<details open>
-<summary><b>📺 Découvrez les autres interfaces (Cliquez pour plier/déplier)</b></summary>
+### **⚡ Editing and Productivity**
 
-#### 1️⃣ Vue Gestion des Tags et Édition
-![Screenshot 1](https://github.com/BC8069EA84/Datasets-Images-EditSelect/raw/main/screenshots%20demo/2026-05-04%2002_19_52-Datasets%20Images%20EditSelect%20%E2%80%94%20Mozilla%20Firefox.png)
+* **Silent Auto-Save:** No need to click "Save" anymore. Saving is done automatically in the background, creating a .bak security file while you navigate.  
+* **"Excel-like" Tables:** Click on a cell and type your value to instantly overwrite the old one (without using the Backspace key).  
+* **Smart Swap 2.0:** Anti-duplicate protection when modifying priorities; tags swap spots intelligently.  
+* **Indestructible Drag & Drop:** Reorganize table rows via drag & drop, rewritten to withstand dynamic UI reloads.
 
-<sub>Interface de gestion des tags avec sélection multiple et édition batch</sub>
+### **⌨️ New Keyboard Shortcuts**
 
----
+* **Secured (AZERTY/QWERTY):** Total independence from your keyboard layout language.  
+* \[Alt \+ Up/Down Arrow\]: Move the selected row in the recipe table.  
+* \[Ctrl \+ F\]: Direct focus on the search bar.
 
-#### 2️⃣ Vue Statistiques et Analyse
-![Screenshot 2](https://github.com/BC8069EA84/Datasets-Images-EditSelect/raw/main/screenshots%20demo/2026-05-04%2002_22_32-Datasets%20Images%20EditSelect%20%E2%80%94%20Mozilla%20Firefox.png)
+## **🌟 Main Features**
 
-<sub>Visualisation des statistiques avec graphiques Plotly et distribution des tags</sub>
+### **👁️ Advanced Viewer & Editor**
 
----
+* **Robust Highlighting (Regex):** Tracked keywords light up in yellow in your captions, even with complex terms or HTML.  
+* **CLIP Token Counter:** Visual red warning if your caption exceeds the usual limit (\> 225 tokens).  
+* **Quick Input Panel:** Dropdown menus under the recipe table for instant target changes.
 
-#### 3️⃣ Vue Assistant d'Export
-![Screenshot 3](https://github.com/BC8069EA84/Datasets-Images-EditSelect/raw/main/screenshots%20demo/2026-05-04%2002_23_01-Datasets%20Images%20EditSelect%20%E2%80%94%20Mozilla%20Firefox.png)
+### **⚡ Batch Editing (Mass Actions)**
 
-<sub>Assistant d'export intelligent avec simulation et stratégies d'équilibrage</sub>
+* **Synonym Management (LoRA Expert):** Intelligent replacement of repetitive tags with a rotating list of synonyms.  
+* **Find/Replace (Regex):** Support for regular expressions for deep cleaning.  
+* **Automatic Cleaning:** Removal of multiple commas, extra spaces, and duplicate tags.
 
----
+### **📈 Statistics & Balancing**
 
-#### 4️⃣ Vue Galerie Détaillée
-![Screenshot 4](https://github.com/BC8069EA84/Datasets-Images-EditSelect/raw/main/screenshots%20demo/Firefox_Screenshot_2026-05-04T00-28-02.250Z.png)
+* **Instant Calculation:** Charts (Plotly) update in real-time as you type without triggering infinite loops.  
+* **Orphan Tag Hunter:** Detects typos or unique tags.  
+* **Markdown/CivitAI Export:** One-click generation of a clean table of your statistics, ready to be shared.
 
-<sub>Galerie avancée avec navigation et actions contextuelles</sub>
+### **📁 Intelligent Export Assistant**
 
----
+Three export strategies for all needs:
 
-</details>
+1. **Auto Balancing (Greedy):** Selects the combination of images that comes closest to your target (%).  
+2. **Priority:** Fills the dataset in the priority order of your tags.  
+3. **Classic Filter:** Only keeps images containing specific tags.
 
----
+## **💡 Recommended Workflow**
 
-## 🌟 Fonctionnalités Principales
+1. 📂 **Load your folder** (containing your image \+ .txt pairs).  
+2. 📊 **Analyze your data** (*Statistics* Tab → "Fill with Top 20").  
+3. 🎯 **Define your targets** (Adjust priorities and percentages in the Export Assistant).  
+4. 🧹 **Clean & Edit** (Use multi-selection mode and the Batch Editor).  
+5. 🚀 **Export** (Simulate, then export your final dataset).
 
-### 🖼️ Galerie et Ergonomie (Interface Avancée)
+## **💻 Installation & Launch**
 
-| Fonctionnalité | Description |
-|---|---|
-| **Design UI/UX Optimisé** | Panneau latéral redimensionnable et repliable pour maximiser l'espace de travail |
-| **Sélection Multiple Intelligente** | Mode de sélection visuel avec surbrillance dynamique des images ciblées |
-| **Raccourcis Claviers Natifs** | Navigation rapide avec les flèches (⬅️ ➡️) et ajout rapide aux statistiques avec Alt + S |
-| **Menu Contextuel Custom** | Clic droit sur l'image pour un accès rapide aux actions de sauvegarde et de navigation |
-| **Mode Sombre Forcé** | Pour le confort visuel lors de longues sessions de tri |
+**Prerequisites:** Python 3.10+ and Git.  
+\# 1\. Clone the repository  
+git clone \[https://github.com/BC8069EA84/Datasets-Images-EditSelect.git\](https://github.com/BC8069EA84/Datasets-Images-EditSelect.git)  
+cd Datasets-Images-EditSelect
 
-### 👁️ Visualiseur & Édition
+\# 2\. Install dependencies  
+pip install gradio pandas plotly
 
-| Fonctionnalité | Description |
-|---|---|
-| **Surlignage (Highlighting)** | Les mots-clés que vous suivez (statistiques) s'illuminent en jaune dans vos captions |
-| **Compteur de Tokens CLIP** | Avertissement visuel en rouge si votre caption dépasse la limite habituelle (ex: > 225 tokens) |
-| **Auto-Backup** | Création silencieuse d'un fichier `.bak` avant toute sauvegarde manuelle |
+\# 3\. Launch the tool  
+python lora\_manager.py
 
-### ⚡ Édition en Batch (Masse)
+*The interface will automatically open in your default browser at 127.0.0.1.*
 
-> 💡 **Note** : Les actions s'appliquent à tout le dataset ou uniquement à votre sélection multiple.
+## **📦 Project Structure**
 
-- **Gestion des Synonymes (Expert LoRA)** : Remplacement intelligent de tags répétitifs par une liste de synonymes tournants
-- **Chercher/Remplacer (avec Regex)** : Support des expressions régulières pour un nettoyage en profondeur
-- **Nettoyage Automatique** : Suppression des virgules multiples, espaces en trop et tags en doublons
-- **Aperçu Avant/Après & Undo** : Visualisez les 10 premiers changements avec possibilité d'annuler
+Datasets-Images-EditSelect/  
+├── lora\_manager.py          \# Main entry point (Backend logic & UI)  
+├── Changelog.md             \# Update history  
+├── en.json                  \# Dictionary (English)  
+├── fr.json                  \# Dictionary (French)  
+├── README.md                \# Documentation (This file)  
+├── requirements.txt         \# Dependencies  
+└── screenshots demo/        \# Presentation images
 
-### 📈 Statistiques & Équilibrage
+## **🎓 Use Cases**
 
-- 🎯 **Recettes de Dataset** : Définissez des "Cibles %" pour vos tags (ex: `man:20%`, `pose-s1:50%`)
-- 📊 **Visualisation Plotly** : Génération de camemberts et d'histogrammes en temps réel
-- 🔧 **Éditeur de Tableau Interactif** : Modifiez vos cibles directement depuis le tableau
-- 🔍 **Chasseur de Tags Orphelins** : Détecte les fautes de frappe
+* ✅ Dataset preparation for **LoRA fine-tuning**.  
+* ✅ Balancing **multi-concept** datasets.  
+* ✅ **Mass** cleaning and correction of captions.  
+* ✅ Intelligent export with precise constraints.
 
-### 📁 Assistant d'Export Intelligent
+## **🤝 Contribution & License**
 
-Trois stratégies d'export pour tous les besoins :
-
-| Stratégie | Description |
-|---|---|
-| **Équilibrage Auto** | L'algorithme sélectionne la combinaison d'images qui se rapproche le plus de vos cibles |
-| **Priorité** | Remplit le dataset dans l'ordre de priorité de vos tags |
-| **Filtre Classique** | Ne garde que les images contenant certains tags |
-
-**Bonus** : Simulation d'export avec limite d'images personnalisée (ex: 150 images max)
-
----
-
-## 🚀 Installation & Lancement
-
-### Prérequis
-- **Python 3.10+**
-- Git
-
-### Étapes
-
-1. **Clonez le dépôt**
-   ```bash
-   git clone https://github.com/BC8069EA84/Datasets-Images-EditSelect.git
-   cd Datasets-Images-EditSelect
-   ```
-
-2. **Installez les dépendances**
-   ```bash
-   pip install gradio pandas plotly
-   ```
-
-3. **Lancez l'outil**
-   ```bash
-   python lora_manager.py
-   ```
-
-4. **Accédez l'interface**
-   - L'interface s'ouvrira automatiquement dans votre navigateur par défaut
-   - Lancé en local sur `127.0.0.1` pour des performances optimales
-
----
-
-## 💡 Comment ça marche ? (Workflow recommandé)
-
-```
-1️⃣  Chargez votre dossier
-    └─ Contenant vos paires image + .txt
-
-2️⃣  Analysez vos données
-    └─ Onglet Statistiques → "Remplir avec le Top 20"
-
-3️⃣  Définissez vos cibles
-    └─ Assistant d'Export → Ajustez les pourcentages
-
-4️⃣  Nettoyez & Éditez
-    └─ Galerie → Utilisez l'Éditeur Batch pour corriger
-
-5️⃣  Exportez votre dataset
-    └─ Assistant d'Export → Simuler → Exporter
-```
-
----
-
-## 📦 Structure du Projet
-
-```
-Datasets-Images-EditSelect/
-├── lora_manager.py          # Point d'entrée principal
-├── readme.md                # Cette documentation
-├── screenshots demo/        # Démonstration visuelle
-└── requirements.txt         # Dépendances Python
-```
-
----
-
-## 🎓 Cas d'Usage
-
-✅ Préparation de datasets pour **LoRA fine-tuning**  
-✅ Équilibrage de datasets **multiconceptes**  
-✅ Nettoyage et correction de captions en **masse**  
-✅ Analyse statistique de la distribution d'un dataset  
-✅ Export intelligent avec contraintes précises  
-
----
-
-## 🔧 Configuration Avancée
-
-### Variables d'Environnement
-```bash
-export GRADIO_SERVER_NAME=127.0.0.1
-export GRADIO_SERVER_PORT=7860
-```
-
-### Personnalisation du Mode Sombre
-Le mode sombre est appliqué par défaut pour un confort visuel optimal.
-
----
-
-## 📄 Licence
-
-Libre d'utilisation et de modification pour vos workflows d'IA.
-
----
-
-## 🤝 Contribution
-
-Les contributions sont bienvenues ! N'hésitez pas à :
-- Signaler des bugs via les Issues
-- Proposer des améliorations
-- Soumettre des Pull Requests
-
----
-
-<div align="center">
-
-**Fait avec ❤️ pour la communauté IA**
-
-[⬆️ Retour au sommet](#-datasets-images-editselect)
-
-</div>
+This project is **Open-Source** and free to use or modify for your AI workflows.  
+Contributions are welcome\! Feel free to report bugs via *Issues*, or submit your *Pull Requests*.
