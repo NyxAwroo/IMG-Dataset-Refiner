@@ -405,7 +405,7 @@ def browse_folder():
 def load_dataset(directory, lang):
     msg_no_sel = "Aucune sélection"
     if not os.path.isdir(directory): 
-        return [], [], [], "Dossier introuvable", [], [], msg_no_sel, "{}", ""
+        return [], [], [], "Dossier introuvable", [], [], msg_no_sel, "{}", "", -1
     dataset = []
     valid_extensions = ('.png', '.jpg', '.jpeg', '.webp')
     idx = 0
@@ -423,13 +423,13 @@ def load_dataset(directory, lang):
     gal_items = get_gallery_items(dataset, lang)
     success_msg = f"{len(dataset)} images chargées."
     gr.Info(success_msg)
-    return dataset, dataset, [], success_msg, gal_items, [], msg_no_sel, "{}", extract_all_tags(dataset)
+    return dataset, dataset, [], success_msg, gal_items, [], msg_no_sel, "{}", extract_all_tags(dataset), -1
 
 def filter_gallery(dataset, search_text, lang):
-    if not dataset: return [], [], [], "", "{}"
-    if not search_text: return dataset, get_gallery_items(dataset, lang), [], "", "{}"
+    if not dataset: return [], [], [], "", "{}", -1
+    if not search_text: return dataset, get_gallery_items(dataset, lang), [], "", "{}", -1
     filtered = [item for item in dataset if search_text.lower() in item['caption'].lower()]
-    return filtered, get_gallery_items(filtered, lang), [], "", "{}"
+    return filtered, get_gallery_items(filtered, lang), [], "", "{}", -1
 
 def get_highlighted_html(caption, tracked_words_str):
     if not caption: return "<div style='padding:10px; background:var(--bg-color); border-radius:5px;'></div>"
@@ -453,7 +453,7 @@ def update_word_count(text, lang):
 
 def update_viewer(filtered_dataset, idx, tracked_words, lang):
     if not filtered_dataset or idx < 0 or idx >= len(filtered_dataset): 
-        return None, "", "", MSG[lang].get("0_words", "0 words"), 0, MSG[lang].get("no_img_sel", "No image")
+        return None, "", "", MSG[lang].get("0_words", "0 words"), -1, MSG[lang].get("no_img_sel", "No image")
     item = filtered_dataset[idx]
     msg = MSG[lang].get("viewing_img", "Viewing: {name}").format(name=item['img_name'])
     return item['img_path'], get_highlighted_html(item['caption'], tracked_words), item['caption'], update_word_count(item['caption'], lang), idx, msg
@@ -494,15 +494,15 @@ def undo_last_action(dataset, history, lang):
 
 def nav_prev(dataset, filtered_dataset, idx, current_caption, tracked_words, lang):
     silent_save(dataset, filtered_dataset, idx, current_caption, lang)
-    if not filtered_dataset: return dataset, filtered_dataset, None, "", "", MSG[lang].get("0_words", "0 words"), 0, ""
-    new_idx = (idx - 1) % len(filtered_dataset)
+    if not filtered_dataset: return dataset, filtered_dataset, None, "", "", MSG[lang].get("0_words", "0 words"), -1, ""
+    new_idx = (idx - 1) % len(filtered_dataset) if idx >= 0 else 0
     res = update_viewer(filtered_dataset, new_idx, tracked_words, lang)
     return (dataset, filtered_dataset) + res
 
 def nav_next(dataset, filtered_dataset, idx, current_caption, tracked_words, lang):
     silent_save(dataset, filtered_dataset, idx, current_caption, lang)
-    if not filtered_dataset: return dataset, filtered_dataset, None, "", "", MSG[lang].get("0_words", "0 words"), 0, ""
-    new_idx = (idx + 1) % len(filtered_dataset)
+    if not filtered_dataset: return dataset, filtered_dataset, None, "", "", MSG[lang].get("0_words", "0 words"), -1, ""
+    new_idx = (idx + 1) % len(filtered_dataset) if idx >= 0 else 0
     res = update_viewer(filtered_dataset, new_idx, tracked_words, lang)
     return (dataset, filtered_dataset) + res
 
@@ -817,13 +817,6 @@ def apply_recipe(name): return load_recipes().get(name, "")
 def save_all_captions(dataset):
     for item in dataset:
         with open(item['txt_path'], 'w', encoding='utf-8') as f: f.write(item['caption'])
-
-def undo_last_action(dataset, history, lang):
-    if not history: return dataset, dataset, MSG[lang].get("nothing_to_undo", "Nothing")
-    dataset = copy.deepcopy(history)
-    save_all_captions(dataset)
-    gr.Warning(MSG[lang].get("undo_success", "Undone"))
-    return dataset, dataset, MSG[lang].get("undo_success", "Undone")
 
 def create_preview_df(old_dataset, new_dataset, lang):
     changes = []
@@ -1455,7 +1448,7 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
     dataset_state = gr.State([])
     filtered_state = gr.State([])
     history_state = gr.State([])
-    current_idx_state = gr.State(0)
+    current_idx_state = gr.State(-1) # CORRECTION : -1 par défaut au lieu de 0
     selected_indices_state = gr.State([]) 
     config_df_state = gr.State("{}") 
     stats_df_state = gr.State("{}")
@@ -1732,11 +1725,13 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
     ui_gallery_cols.change(fn=lambda x: gr.update(columns=x), inputs=[ui_gallery_cols], outputs=[gallery])
 
     # Core V2 Navigation Bindings
+    # CORRECTION : Ajout de current_idx_state aux outputs de load_dataset
     ui_load_btn.click(
         fn=load_dataset, inputs=[dir_input, lang_radio], 
-        outputs=[dataset_state, filtered_state, history_state, ui_status_text, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, ui_hidden_tags_input]
+        outputs=[dataset_state, filtered_state, history_state, ui_status_text, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, ui_hidden_tags_input, current_idx_state]
     )
-    ui_search_box.change(fn=filter_gallery, inputs=[dataset_state, ui_search_box, lang_radio], outputs=[filtered_state, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input])
+    # CORRECTION : Ajout de current_idx_state aux outputs de filter_gallery
+    ui_search_box.change(fn=filter_gallery, inputs=[dataset_state, ui_search_box, lang_radio], outputs=[filtered_state, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, current_idx_state])
     
     ui_hidden_sync_btn.click(
         fn=handle_sync, inputs=[ui_hidden_sync_input, dataset_state, filtered_state, current_idx_state, current_caption, ui_tracked_words, lang_radio], 
