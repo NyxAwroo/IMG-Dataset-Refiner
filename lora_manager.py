@@ -545,6 +545,11 @@ def df_to_tracked_words(df):
         else: words.append(mot)
     return ", ".join(words)
 
+def norm_tracked_words(s):
+    """Normalise la chaîne de mots-clés pour éviter les boucles de mise à jour inutiles."""
+    if not s or not isinstance(s, str): return ""
+    return ",".join(sorted([w.strip().lower() for w in s.split(',') if w.strip()]))
+
 def safe_df_to_tracked_words(df, current_str):
     new_str = df_to_tracked_words(df)
     if norm_tracked_words(new_str) == norm_tracked_words(current_str): return gr.update()
