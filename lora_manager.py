@@ -12,20 +12,27 @@ import pandas as pd
 from collections import Counter, defaultdict
 from PIL import Image
 
-# Import ImageHash (Point 8)
+# Import ImageHash
 try:
     import imagehash
     HAS_IMAGEHASH = True
 except ImportError:
     HAS_IMAGEHASH = False
 
-# Import OpenCV pour le Smart Crop (Point 10)
+# Import OpenCV pour le Smart Crop
 try:
     import cv2
     import numpy as np
     HAS_CV2 = True
 except ImportError:
     HAS_CV2 = False
+
+# Import deep-translator
+try:
+    from deep_translator import GoogleTranslator
+    HAS_TRANSLATOR = True
+except ImportError:
+    HAS_TRANSLATOR = False
 
 # ==========================================
 # CONFIGURATION & DICTIONNAIRES DE LANGUE
@@ -38,7 +45,6 @@ DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434"
 MSG = {"FR": {}, "EN": {}}
 UI_T = {"FR": {}, "EN": {}}
 
-# Dictionnaire de contradictions logiques
 CONTRADICTIONS_LOGIQUES = [
     ("day", "night"), ("daytime", "night"),
     ("solo", "multiple girls"), ("solo", "multiple boys"),
@@ -63,12 +69,20 @@ load_languages()
 # STYLES CSS NATIFS & JAVASCRIPT GLOBAL
 # ==========================================
 css_code = """
+/* Suppression totale des en-têtes Gradio */
+.gradio-container header, .gradio-container-4-26-0 header, header { display: none !important; }
+footer { display: none !important; }
+
 #left_panel { resize: horizontal; overflow-x: hidden; overflow-y: auto; width: 380px; min-width: 250px; max-width: 70vw; flex: none !important; border-right: 2px solid #374151; padding-right: 15px; transition: min-width 0.3s ease, width 0.3s ease, padding 0.3s ease, opacity 0.3s ease; }
 #left_panel.collapsed { width: 0px !important; min-width: 0px !important; padding: 0px !important; margin: 0px !important; border: none !important; opacity: 0; pointer-events: none; }
+#right_panel { width: 380px; min-width: 250px; max-width: 50vw; flex: none !important; border-left: 2px solid #374151; padding-left: 15px; overflow-y: auto; max-height: 95vh; }
 .caption-label { font-size: 14px !important; font-weight: bold !important; color: #4ade80 !important; display: none !important; }
 .custom-selected { outline: 4px solid #ff8800 !important; outline-offset: -4px !important; box-shadow: inset 0 0 20px rgba(255, 136, 0, 0.9) !important; border-radius: 8px !important; }
 .custom-selected img { filter: sepia(0.8) hue-rotate(330deg) saturate(3) !important; opacity: 0.8 !important; }
-#hidden_sync_input, #hidden_sync_btn, #hidden_calc_btn, #hidden_dnd_input, #hidden_dnd_btn, #hidden_tags_input, #hidden_ai_prompt_update { display: none !important; }
+
+#hidden_sync_input, #hidden_sync_btn, #hidden_calc_btn, #hidden_dnd_input, #hidden_dnd_btn, #hidden_tags_input { display: none !important; }
+#hidden_lib_toggle_input, #hidden_lib_toggle_btn, #hidden_lib_delete_input, #hidden_lib_delete_btn { display: none !important; }
+
 .gradio-dataframe tbody tr { transition: background-color 0.2s, opacity 0.2s; }
 .gradio-dataframe tbody tr[draggable="true"] { cursor: grab !important; }
 .gradio-dataframe tbody tr.dragging { opacity: 0.4; background-color: rgba(255, 136, 0, 0.3) !important; outline: 2px dashed #ff8800; outline-offset: -2px;}
@@ -76,7 +90,21 @@ css_code = """
 #autocomplete-list div { padding: 8px; cursor: pointer; color: #fff; font-size: 14px; }
 #autocomplete-list div:hover, #autocomplete-list div.autocomplete-active { background-color: #4ade80; color: #000; }
 .info-box { background-color: rgba(74, 222, 128, 0.1); border-left: 4px solid #4ade80; padding: 10px; margin-bottom: 15px; border-radius: 4px; }
-.ai-desc-box { background-color: #1e293b; border: 1px solid #334155; padding: 12px; border-radius: 6px; font-size: 0.95em; color: #cbd5e1; margin-top: 5px; }
+
+#btn_translate_entire { background: #4ade80 !important; color: #052e16 !important; font-weight: bold !important; border: none !important; transition: all 0.2s; }
+#btn_translate_entire:hover { background: #22c55e !important; transform: scale(1.01); }
+
+/* Rendu 100% Natif Gradio (Fond Vert par CSS) pour Traduction Live */
+#live_translation_preview textarea { 
+    background-color: rgba(34, 197, 94, 0.08) !important; 
+    color: #4ade80 !important; 
+    border: 1px dashed #4ade80 !important; 
+    font-style: italic !important;
+    opacity: 1 !important; 
+    -webkit-text-fill-color: #4ade80 !important;
+}
+
+.lib-item-custom { transition: border-color 0.2s ease, background-color 0.2s ease; }
 """
 
 custom_js = """
@@ -88,14 +116,37 @@ function() {
     window.lastClickedIndex = -1;
     window.allDatasetTags = [];
 
+    function setNativeValue(element, value) {
+        const valueSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value").set;
+        const prototype = Object.getPrototypeOf(element);
+        const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
+        const setter = descriptor ? descriptor.set : valueSetter;
+        setter.call(element, value);
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+
+    window.clickLibToggle = function(idx) {
+        let inp = document.querySelector('#hidden_lib_toggle_input textarea');
+        if(!inp) inp = document.querySelector('#hidden_lib_toggle_input input');
+        if(inp) { setNativeValue(inp, idx.toString() + "_" + Date.now()); }
+        setTimeout(() => document.getElementById('hidden_lib_toggle_btn')?.click(), 50);
+    };
+    
+    window.clickLibDelete = function(idx, e) {
+        if(e) e.stopPropagation(); 
+        let inp = document.querySelector('#hidden_lib_delete_input textarea');
+        if(!inp) inp = document.querySelector('#hidden_lib_delete_input input');
+        if(inp) { setNativeValue(inp, idx.toString() + "_" + Date.now()); }
+        setTimeout(() => document.getElementById('hidden_lib_delete_btn')?.click(), 50);
+    };
+
     function updateGalleryVisuals() { document.querySelectorAll('#main_gallery button').forEach((btn, idx) => { btn.classList.toggle('custom-selected', window.gallerySelectedIndices.has(idx)); }); }
     function syncWithPython(viewIndex) {
         const payload = { selected: Array.from(window.gallerySelectedIndices), viewIndex: viewIndex };
         const wrapper = document.getElementById('hidden_sync_input');
         const inputEl = wrapper ? wrapper.querySelector('textarea, input') : null;
         if (inputEl) {
-            inputEl.value = JSON.stringify(payload);
-            inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+            setNativeValue(inputEl, JSON.stringify(payload));
             setTimeout(() => { const btn = document.getElementById('hidden_sync_btn'); if (btn) btn.click(); }, 30);
         }
     }
@@ -150,7 +201,6 @@ function() {
     });
     observer.observe(document.body, { childList: true, subtree: true });
 
-    // SÉLECTION EXCEL-LIKE
     const svelteInputObserver = new MutationObserver((mutations) => {
         mutations.forEach(m => {
             m.addedNodes.forEach(node => {
@@ -158,10 +208,7 @@ function() {
                     const input = node.tagName === 'INPUT' ? node : node.querySelector('input');
                     if (input && input.closest('.gradio-dataframe')) {
                         let tries = 0;
-                        const selectInterval = setInterval(() => {
-                            input.select();
-                            if (tries++ > 15) clearInterval(selectInterval);
-                        }, 20);
+                        const selectInterval = setInterval(() => { input.select(); if (tries++ > 15) clearInterval(selectInterval); }, 20);
                     }
                 }
             });
@@ -169,7 +216,6 @@ function() {
     });
     svelteInputObserver.observe(document.body, { childList: true, subtree: true });
 
-    // DRAG & DROP TABLEAU
     let dragStartIndex = -1;
     document.addEventListener('mousedown', function(e) {
         const tr = e.target.closest('.gradio-dataframe tbody tr');
@@ -217,8 +263,7 @@ function() {
                 const hiddenInput = wrapper ? wrapper.querySelector('textarea, input') : null;
                 const hiddenBtn = document.getElementById('hidden_dnd_btn');
                 if (hiddenInput && hiddenBtn) {
-                    hiddenInput.value = dragStartIndex + "," + dragEndIndex;
-                    hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    setNativeValue(hiddenInput, dragStartIndex + "," + dragEndIndex);
                     setTimeout(() => hiddenBtn.click(), 50);
                 }
             }
@@ -226,21 +271,13 @@ function() {
         dragStartIndex = -1;
     });
 
-    // RACCOURCIS CLAVIERS
     window.addEventListener('keydown', function(e) {
         const tag = e.target.tagName.toLowerCase();
         const isInput = (tag === 'input' || tag === 'textarea');
 
-        if (e.altKey && e.code === 'ArrowUp') { 
-            e.preventDefault(); e.stopPropagation(); 
-            document.getElementById('btn_move_up')?.click(); return; 
-        }
-        if (e.altKey && e.code === 'ArrowDown') { 
-            e.preventDefault(); e.stopPropagation(); 
-            document.getElementById('btn_move_down')?.click(); return; 
-        }
-
-        if (isInput && !e.altKey && !e.ctrlKey && !e.metaKey) return;
+        if (e.altKey && e.code === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); document.getElementById('btn_move_up')?.click(); return; }
+        if (e.altKey && e.code === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); document.getElementById('btn_move_down')?.click(); return; }
+        if (isInput && !e.altKey && !e.ctrlKey && !e.metaKey && e.code !== 'PageUp' && e.code !== 'PageDown') return;
 
         if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyA' || e.key.toLowerCase() === 'a')) {
             if (isInput) return;
@@ -253,48 +290,42 @@ function() {
             return;
         }
 
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyF' || e.key.toLowerCase() === 'f')) {
-            e.preventDefault(); e.stopPropagation();
-            const searchBox = document.querySelector('input[placeholder*="mot"], input[placeholder*="word"]');
-            if (searchBox) { searchBox.focus(); searchBox.select(); }
-            return;
-        }
-
-        if (e.altKey && (e.code === 'KeyS' || e.key.toLowerCase() === 's')) {
-            e.preventDefault(); e.stopPropagation();
-            document.getElementById('toggle_tag_btn')?.click();
-            return;
-        }
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyF' || e.key.toLowerCase() === 'f')) { e.preventDefault(); e.stopPropagation(); const searchBox = document.querySelector('input[placeholder*="mot"], input[placeholder*="word"]'); if (searchBox) { searchBox.focus(); searchBox.select(); } return; }
+        if (e.altKey && (e.code === 'KeyS' || e.key.toLowerCase() === 's')) { e.preventDefault(); e.stopPropagation(); document.getElementById('toggle_tag_btn')?.click(); return; }
+        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyS' || e.key.toLowerCase() === 's')) { e.preventDefault(); e.stopPropagation(); document.getElementById('save_single_btn')?.click(); return; }
+        if (e.altKey && (e.code === 'KeyC' || e.key.toLowerCase() === 'c')) { e.preventDefault(); e.stopPropagation(); document.getElementById('clear_sel_btn')?.click(); return; }
         
-        if ((e.ctrlKey || e.metaKey) && (e.code === 'KeyS' || e.key.toLowerCase() === 's')) {
-            e.preventDefault(); e.stopPropagation();
-            document.getElementById('save_single_btn')?.click();
-            return;
-        }
-        
-        if (e.altKey && (e.code === 'KeyC' || e.key.toLowerCase() === 'c')) {
-            e.preventDefault(); e.stopPropagation();
-            document.getElementById('clear_sel_btn')?.click();
-            return;
-        }
-        
+        if (e.code === 'PageUp') { e.preventDefault(); document.getElementById('prev_btn')?.click(); return; }
+        if (e.code === 'PageDown') { e.preventDefault(); document.getElementById('next_btn')?.click(); return; }
         if (isInput) return;
-        
         if (e.code === 'ArrowLeft' || e.key === 'ArrowLeft') { e.preventDefault(); document.getElementById('prev_btn')?.click(); }
         if (e.code === 'ArrowRight' || e.key === 'ArrowRight') { e.preventDefault(); document.getElementById('next_btn')?.click(); }
     }, true); 
 
-    document.addEventListener('mousedown', function(e) {
-        if (e.shiftKey && e.target.closest('#main_gallery')) { e.preventDefault(); }
-    });
-
-    // GESTION DU CLIC GALERIE
     document.addEventListener('click', function(e) {
+        // --- 1. ÉCOUTE DES CLICS DE LA BIBLIOTHÈQUE ---
+        const delBtn = e.target.closest('.lib-item-delete');
+        if (delBtn) {
+            e.preventDefault(); e.stopPropagation();
+            const idx = delBtn.getAttribute('data-idx');
+            if (idx !== null) window.clickLibDelete(idx, e);
+            return;
+        }
+
+        const libItem = e.target.closest('.lib-item-custom');
+        if (libItem) {
+            e.preventDefault(); e.stopPropagation();
+            const idx = libItem.getAttribute('data-idx');
+            if (idx !== null) window.clickLibToggle(idx);
+            return;
+        }
+
+        // --- 2. ÉCOUTE DES CLICS DE LA GALERIE ---
+        if (e.target.closest('label') || e.target.tagName === 'INPUT') return;
         const btn = e.target.closest('#main_gallery button');
         if (!btn) return;
-
+        
         e.preventDefault(); e.stopPropagation();
-
         const btns = Array.from(document.querySelectorAll('#main_gallery button'));
         const index = btns.indexOf(btn);
         if (index === -1) return;
@@ -322,50 +353,6 @@ function() {
         syncWithPython(index);
     }, true);
 
-    // MENU CONTEXTUEL CLIC DROIT
-    document.addEventListener('contextmenu', function(e) {
-        const galleryBtn = e.target.closest('#main_gallery button');
-        if (galleryBtn) {
-            e.preventDefault();
-            
-            const btns = Array.from(document.querySelectorAll('#main_gallery button'));
-            const index = btns.indexOf(galleryBtn);
-            if(!window.gallerySelectedIndices.has(index)) {
-                window.gallerySelectedIndices.clear();
-                window.gallerySelectedIndices.add(index);
-                window.lastClickedIndex = index;
-                updateGalleryVisuals();
-                syncWithPython(index);
-            }
-
-            let menu = document.getElementById('customContextMenu');
-            if (!menu) {
-                menu = document.createElement('div');
-                menu.id = 'customContextMenu';
-                menu.innerHTML = `
-                    <div class="menu-item" onclick="document.getElementById('save_single_btn')?.click(); this.parentNode.style.display='none';">💾 Sauver Caption (Ctrl+S)</div>
-                    <div class="menu-item" onclick="document.getElementById('toggle_tag_btn')?.click(); this.parentNode.style.display='none';">🪄 Ajouter Stats (Alt+S)</div>
-                    <hr style="margin:4px 0; border-color:#444;">
-                    <div class="menu-item" onclick="document.getElementById('clear_sel_btn')?.click(); this.parentNode.style.display='none';">🧹 Vider Sélection (Alt+C)</div>
-                `;
-                document.body.appendChild(menu);
-            }
-            menu.style.display = 'block';
-            let x = e.pageX; let y = e.pageY;
-            if (x + 200 > window.innerWidth) x = window.innerWidth - 210;
-            if (y + 120 > window.innerHeight) y = window.innerHeight - 130;
-            menu.style.left = x + 'px';
-            menu.style.top = y + 'px';
-        }
-    });
-
-    document.addEventListener('click', function(e) {
-        if (!e.target.closest('#customContextMenu')) {
-            const menu = document.getElementById('customContextMenu');
-            if(menu) menu.style.display = 'none';
-        }
-    });
-    
     setInterval(() => {
         const wrapper = document.getElementById('hidden_sync_input');
         const selInput = wrapper ? wrapper.querySelector('textarea, input') : null;
@@ -402,10 +389,23 @@ def browse_folder():
         return folder_path if folder_path else ""
     except Exception as e: return ""
 
-def load_dataset(directory, lang):
-    msg_no_sel = "Aucune sélection"
+def sort_dataset(dataset, order, lang, msg_no_sel, all_tags_str=""):
+    if not dataset: return [], [], [], "", "{}", -1
+    if order == "Z-A":
+        dataset = sorted(dataset, key=lambda x: x['img_name'], reverse=True)
+    else:
+        dataset = sorted(dataset, key=lambda x: x['img_name'])
+    for idx, item in enumerate(dataset): item['id'] = idx
+        
+    gal_items = get_gallery_items(dataset, lang)
+    success_msg = MSG[lang].get("images_loaded", "{count} images loaded.").format(count=len(dataset))
+    gr.Info(success_msg)
+    return dataset, dataset, [], success_msg, gal_items, [], msg_no_sel, "{}", all_tags_str or extract_all_tags(dataset), -1
+
+def load_dataset(directory, sort_order, lang):
+    msg_no_sel = MSG[lang].get("no_selection", "Aucune sélection active.")
     if not os.path.isdir(directory): 
-        return [], [], [], "Dossier introuvable", [], [], msg_no_sel, "{}", "", -1
+        return [], [], [], MSG[lang].get("folder_not_found", "Dossier introuvable."), [], [], msg_no_sel, "{}", "", -1
     dataset = []
     valid_extensions = ('.png', '.jpg', '.jpeg', '.webp')
     idx = 0
@@ -420,15 +420,15 @@ def load_dataset(directory, lang):
                 with open(txt_path, 'w', encoding='utf-8') as f: pass
             dataset.append({'id': idx, 'img_name': filename, 'img_path': img_path, 'txt_path': txt_path, 'caption': caption})
             idx += 1
-    gal_items = get_gallery_items(dataset, lang)
-    success_msg = f"{len(dataset)} images chargées."
-    gr.Info(success_msg)
-    return dataset, dataset, [], success_msg, gal_items, [], msg_no_sel, "{}", extract_all_tags(dataset), -1
+    return sort_dataset(dataset, sort_order, lang, msg_no_sel, extract_all_tags(dataset))
 
-def filter_gallery(dataset, search_text, lang):
+def filter_gallery(dataset, search_text, sort_order, lang):
     if not dataset: return [], [], [], "", "{}", -1
-    if not search_text: return dataset, get_gallery_items(dataset, lang), [], "", "{}", -1
-    filtered = [item for item in dataset if search_text.lower() in item['caption'].lower()]
+    filtered = dataset
+    if search_text:
+        filtered = [item for item in dataset if search_text.lower() in item['caption'].lower()]
+    if sort_order == "Z-A": filtered = sorted(filtered, key=lambda x: x['img_name'], reverse=True)
+    else: filtered = sorted(filtered, key=lambda x: x['img_name'])
     return filtered, get_gallery_items(filtered, lang), [], "", "{}", -1
 
 def get_highlighted_html(caption, tracked_words_str):
@@ -451,6 +451,12 @@ def update_word_count(text, lang):
     warning = MSG[lang].get("truncation_risk", "") if tokens > 225 else ""
     return f"<div style='color:{color}; font-weight:bold;'>{words} {MSG[lang].get('word_count','words')} (~{tokens} {MSG[lang].get('token_count','tokens')}){warning}</div>"
 
+def get_updated_viewer_data(filtered_dataset, idx, tracked_words, lang):
+    if not filtered_dataset or idx < 0 or idx >= len(filtered_dataset): 
+        return "", get_highlighted_html("", tracked_words), update_word_count("", lang)
+    item = filtered_dataset[idx]
+    return item['caption'], get_highlighted_html(item['caption'], tracked_words), update_word_count(item['caption'], lang)
+
 def update_viewer(filtered_dataset, idx, tracked_words, lang):
     if not filtered_dataset or idx < 0 or idx >= len(filtered_dataset): 
         return None, "", "", MSG[lang].get("0_words", "0 words"), -1, MSG[lang].get("no_img_sel", "No image")
@@ -463,10 +469,14 @@ def silent_save(dataset, filtered_dataset, idx, new_caption, lang):
     item_filtered = filtered_dataset[idx]
     if item_filtered['caption'] == new_caption: return 
     real_id = item_filtered['id']
-    if os.path.exists(item_filtered['txt_path']): shutil.copy2(item_filtered['txt_path'], item_filtered['txt_path'] + ".bak")
+    if os.path.exists(item_filtered['txt_path']) and os.path.getsize(item_filtered['txt_path']) > 0: 
+        shutil.copy2(item_filtered['txt_path'], item_filtered['txt_path'] + ".bak")
     item_filtered['caption'] = new_caption
     dataset[real_id]['caption'] = new_caption
     with open(item_filtered['txt_path'], 'w', encoding='utf-8') as f: f.write(new_caption)
+
+def clear_selection(lang): 
+    return [], MSG[lang].get("no_sel_all", "Aucune sélection (Le Batch impactera **TOUT** le dataset)."), "{}"
 
 def handle_sync(payload_str, dataset, filtered_dataset, old_idx, old_caption, tracked_words, lang):
     silent_save(dataset, filtered_dataset, old_idx, old_caption, lang)
@@ -477,7 +487,7 @@ def handle_sync(payload_str, dataset, filtered_dataset, old_idx, old_caption, tr
     except:
         sel_js = []; view_idx = 0
     real_ids = [filtered_dataset[i]['id'] for i in sel_js if 0 <= i < len(filtered_dataset)] if filtered_dataset else []
-    sel_text = f"{len(real_ids)} sélectionnée(s)" if real_ids else ""
+    sel_text = MSG[lang].get("selected_multi", "✅ **{count}** sélectionnée(s)").format(count=len(real_ids)) if real_ids else ""
     img_path, hl_html, cap, wc, c_idx, v_status = update_viewer(filtered_dataset, view_idx, tracked_words, lang)
     return dataset, filtered_dataset, real_ids, sel_text, img_path, hl_html, cap, wc, c_idx, v_status, extract_all_tags(dataset)
 
@@ -485,12 +495,19 @@ def save_all_captions(dataset):
     for item in dataset:
         with open(item['txt_path'], 'w', encoding='utf-8') as f: f.write(item['caption'])
 
-def undo_last_action(dataset, history, lang):
-    if not history: return dataset, dataset, MSG[lang].get("nothing_to_undo", "Nothing")
-    dataset = copy.deepcopy(history)
-    save_all_captions(dataset)
-    gr.Warning(MSG[lang].get("undo_success", "Undone"))
-    return dataset, dataset, MSG[lang].get("undo_success", "Undone")
+def save_single_caption(dataset, filtered_dataset, idx, new_caption, lang):
+    if not filtered_dataset or idx < 0 or idx >= len(filtered_dataset): 
+        return dataset, filtered_dataset, MSG[lang].get("error", "Error")
+    item_filtered = filtered_dataset[idx]
+    real_id = item_filtered['id']
+    if os.path.exists(item_filtered['txt_path']) and os.path.getsize(item_filtered['txt_path']) > 0: 
+        shutil.copy2(item_filtered['txt_path'], item_filtered['txt_path'] + ".bak")
+    item_filtered['caption'] = new_caption
+    dataset[real_id]['caption'] = new_caption
+    with open(item_filtered['txt_path'], 'w', encoding='utf-8') as f: f.write(new_caption)
+    msg_success = MSG[lang].get("saved", "Saved: {name}").format(name=item_filtered['img_name'])
+    gr.Info(msg_success)
+    return dataset, filtered_dataset, msg_success
 
 def nav_prev(dataset, filtered_dataset, idx, current_caption, tracked_words, lang):
     silent_save(dataset, filtered_dataset, idx, current_caption, lang)
@@ -506,226 +523,459 @@ def nav_next(dataset, filtered_dataset, idx, current_caption, tracked_words, lan
     res = update_viewer(filtered_dataset, new_idx, tracked_words, lang)
     return (dataset, filtered_dataset) + res
 
-def save_single_caption(dataset, filtered_dataset, idx, new_caption, lang):
-    if not filtered_dataset or idx < 0 or idx >= len(filtered_dataset): 
-        return dataset, filtered_dataset, MSG[lang].get("error", "Error")
-    item_filtered = filtered_dataset[idx]
-    real_id = item_filtered['id']
-    if os.path.exists(item_filtered['txt_path']): shutil.copy2(item_filtered['txt_path'], item_filtered['txt_path'] + ".bak")
-    item_filtered['caption'] = new_caption
-    dataset[real_id]['caption'] = new_caption
-    with open(item_filtered['txt_path'], 'w', encoding='utf-8') as f: f.write(new_caption)
-    msg_success = MSG[lang].get("saved", "Saved: {name}").format(name=item_filtered['img_name'])
-    gr.Info(msg_success)
-    return dataset, filtered_dataset, msg_success
+def undo_last_action(dataset, history, current_idx, tracked_words, lang):
+    if not history: return dataset, dataset, MSG[lang].get("nothing_to_undo", "Nothing"), "", get_highlighted_html("", tracked_words), update_word_count("", lang)
+    dataset = copy.deepcopy(history)
+    save_all_captions(dataset)
+    gr.Warning(MSG[lang].get("undo_success", "Undone"))
+    cap, hl_html, wc = get_updated_viewer_data(dataset, current_idx, tracked_words, lang)
+    return dataset, dataset, MSG[lang].get("undo_success", "Undone"), cap, hl_html, wc
 
-def clear_selection(lang): 
-    return [], MSG[lang].get("no_sel_all", ""), "{}"
+def load_recipes():
+    if os.path.exists(RECIPES_FILE):
+        with open(RECIPES_FILE, 'r') as f: return json.load(f)
+    return {"Default": "1girl, solo, looking at viewer"}
 
-def toggle_tracked_word(current_tracker, selected_text):
-    if not selected_text: return gr.update()
-    word = selected_text.strip(', ')
-    if not word: return gr.update()
-    current_list = [w.strip() for w in current_tracker.split(',') if w.strip()]
-    existing = []; found = False
-    for w in current_list:
-        if w.split(':')[0].strip().lower() == word.lower(): found = True 
-        else: existing.append(w)
-    if not found: existing.append(word) 
-    return ", ".join(existing)
+def save_recipe(name, words):
+    if not name: return gr.update(), "Empty name"
+    recipes = load_recipes()
+    recipes[name] = words
+    with open(RECIPES_FILE, 'w') as f: json.dump(recipes, f)
+    gr.Info("✅ Recette sauvegardée avec succès !")
+    return gr.update(choices=list(recipes.keys()), value=name), "✅ Saved"
 
-def df_to_tracked_words(df):
-    if df is None or df.empty: return ""
-    words = []
-    for _, row in df.iterrows():
-        mot = str(row.get("Mot-clé", row.get("Keyword", ""))).strip()
-        if not mot or mot.lower() in ["aucun", "none"]: continue
-        cible = str(row.get("Cible %", row.get("Target %", ""))).replace('%', '').strip()
-        if cible and cible != "-" and cible != "0.0" and cible != "0": words.append(f"{mot}:{cible}")
-        else: words.append(mot)
-    return ", ".join(words)
+def apply_recipe(name):
+    return load_recipes().get(name, "")
 
-def norm_tracked_words(s):
-    """Normalise la chaîne de mots-clés pour éviter les boucles de mise à jour inutiles."""
-    if not s or not isinstance(s, str): return ""
-    return ",".join(sorted([w.strip().lower() for w in s.split(',') if w.strip()]))
+# ==========================================
+# 📚 NOUVEAU MODULE: BIBLIOTHÈQUE CUSTOM
+# ==========================================
 
-def safe_df_to_tracked_words(df, current_str):
-    new_str = df_to_tracked_words(df)
-    if norm_tracked_words(new_str) == norm_tracked_words(current_str): return gr.update()
-    return new_str
+def render_lib_html(lib_state, lang):
+    if not lib_state:
+        empty_msg = MSG.get(lang, MSG["FR"]).get("lib_empty", "Bibliothèque vide... Entrez des mots ci-dessous.")
+        return f"<div style='padding:10px; color:#9ca3af; font-style:italic;'>{empty_msg}</div>"
+    html = "<div id='custom_library_container' style='display:flex; flex-direction:column; gap:8px; margin-top:10px;'>"
+    for idx, item in enumerate(lib_state):
+        text = item['text']
+        is_sel = item.get('selected', False)
+        bg_color = "rgba(249, 115, 22, 0.2)" if is_sel else "#1f2937"
+        border_color = "#f97316" if is_sel else "#374151"
+        safe_t = text.replace("'", "&#39;").replace('"', '&quot;')
+        html += f"""
+        <div class='lib-item-custom' data-idx='{idx}' style='border: 2px solid {border_color}; background-color: {bg_color}; padding: 10px 15px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; margin-bottom: 5px;'>
+            <span style='color: #fff; font-size: 1.05em; pointer-events: none;'>{safe_t}</span>
+            <span class='lib-item-delete' data-idx='{idx}' style='color: #fb923c; font-weight: bold; cursor: pointer; padding: 2px 6px; border-radius:4px; font-size:1.1em; background-color: rgba(251, 146, 60, 0.1);' title='Supprimer'>X</span>
+        </div>
+        """
+    html += "</div>"
+    return html
 
-def get_row_index(evt: gr.SelectData, state_json):
-    row_idx = evt.index[0]
-    if not state_json or state_json == "{}": return row_idx, gr.update(), gr.update()
-    df = pd.read_json(io.StringIO(state_json), orient='records')
-    if df.empty or row_idx >= len(df): return row_idx, gr.update(), gr.update()
-    
-    prio_col = "Priorité" if "Priorité" in df.columns else "Priority"
-    tgt_col = "Cible %" if "Cible %" in df.columns else "Target %"
-    
-    prio_val = str(df.at[row_idx, prio_col])
-    tgt_val = str(df.at[row_idx, tgt_col]).replace('%', '')
-    try: tgt_val = float(tgt_val)
-    except: tgt_val = 0.0
-    return row_idx, prio_val, tgt_val
+def add_to_lib_html(text, lib_state, lang):
+    if not text: return gr.update(), lib_state, ""
+    new_lib = copy.deepcopy(lib_state)
+    items = [x.strip() for x in re.split(r'[\n;]', text) if x.strip()]
+    for item in items:
+        if not any(x['text'] == item for x in new_lib) and item.lower() != "none":
+            new_lib.append({"text": item, "selected": False})
+    return render_lib_html(new_lib, lang), new_lib, ""
 
-def apply_quick_prio(new_prio, row_idx, state_json):
-    if row_idx < 0 or not state_json or state_json == "{}": return gr.update(), state_json, gr.update(), row_idx
-    df = pd.read_json(io.StringIO(state_json), orient='records')
-    if df.empty or row_idx >= len(df): return gr.update(), state_json, gr.update(), row_idx
-    
-    prio_col = "Priorité" if "Priorité" in df.columns else "Priority"
-    try: new_prio_int = int(new_prio)
-    except: return gr.update(), state_json, gr.update(), row_idx
-        
-    max_prio = len(df)
-    if new_prio_int < 1: new_prio_int = 1
-    if new_prio_int > max_prio: new_prio_int = max_prio
-        
-    old_prio = df.at[row_idx, prio_col]
-    if old_prio == new_prio_int: return gr.update(), state_json, gr.update(), row_idx
-    
-    conflict_mask = df[prio_col] == new_prio_int
-    if conflict_mask.any():
-        conflict_idx = conflict_mask.idxmax()
-        df.at[conflict_idx, prio_col] = old_prio
-        
-    df.at[row_idx, prio_col] = new_prio_int
-    df = df.sort_values(by=prio_col).reset_index(drop=True)
-    df[prio_col] = range(1, len(df) + 1)
-    
-    new_row_idx = df.index[df[prio_col] == new_prio_int].tolist()[0]
-    new_json = df.to_json(orient='records')
-    return df, new_json, df_to_tracked_words(df), new_row_idx
-
-def apply_quick_target(new_tgt, row_idx, state_json):
-    if row_idx < 0 or not state_json or state_json == "{}": return gr.update(), state_json, gr.update()
-    df = pd.read_json(io.StringIO(state_json), orient='records')
-    if df.empty or row_idx >= len(df): return gr.update(), state_json, gr.update()
-    
-    tgt_col = "Cible %" if "Cible %" in df.columns else "Target %"
-    
-    old_tgt = str(df.at[row_idx, tgt_col]).replace('%', '')
-    try: old_tgt = float(old_tgt)
-    except: old_tgt = 0.0
-    
-    if new_tgt is None: new_tgt = 0.0
-    if old_tgt == new_tgt: return gr.update(), state_json, gr.update()
-    
-    df.at[row_idx, tgt_col] = new_tgt
-    new_json = df.to_json(orient='records')
-    return df, new_json, df_to_tracked_words(df)
-
-def df_move_up(df, row_idx):
-    if df is None or df.empty or row_idx <= 0 or row_idx >= len(df): return df, row_idx, df_to_tracked_words(df)
-    d = df.to_dict('records')
-    d[row_idx], d[row_idx-1] = d[row_idx-1], d[row_idx]
-    ndf = pd.DataFrame(d)
-    col = "Priorité" if "Priorité" in ndf.columns else "Priority"
-    ndf[col] = range(1, len(ndf)+1)
-    return ndf, row_idx - 1, df_to_tracked_words(ndf)
-
-def df_move_down(df, row_idx):
-    if df is None or df.empty or row_idx < 0 or row_idx >= len(df)-1: return df, row_idx, df_to_tracked_words(df)
-    d = df.to_dict('records')
-    d[row_idx], d[row_idx+1] = d[row_idx+1], d[row_idx]
-    ndf = pd.DataFrame(d)
-    col = "Priorité" if "Priorité" in ndf.columns else "Priority"
-    ndf[col] = range(1, len(ndf)+1)
-    return ndf, row_idx + 1, df_to_tracked_words(ndf)
-
-def df_delete_row(df, row_idx):
-    if df is None or df.empty or row_idx < 0 or row_idx >= len(df): return df, -1, df_to_tracked_words(df)
-    d = df.to_dict('records')
-    d.pop(row_idx)
-    ndf = pd.DataFrame(d) if d else pd.DataFrame(columns=df.columns)
-    if not ndf.empty:
-        col = "Priorité" if "Priorité" in ndf.columns else "Priority"
-        ndf[col] = range(1, len(ndf)+1)
-    return ndf, -1, df_to_tracked_words(ndf)
-
-def handle_df_edit(new_df, old_df):
-    if new_df is None or new_df.empty: return new_df, new_df, df_to_tracked_words(new_df)
-    prio_col = "Priorité" if "Priorité" in new_df.columns else "Priority"
-
-    if old_df is not None and not old_df.empty and len(new_df) == len(old_df):
-        try:
-            new_series = pd.to_numeric(new_df[prio_col], errors='coerce').fillna(999).astype(int)
-            old_series = pd.to_numeric(old_df[prio_col], errors='coerce').fillna(999).astype(int)
-            diff_mask = new_series != old_series
-            if diff_mask.any():
-                changed_idx = diff_mask.idxmax()
-                new_prio = new_series.iloc[changed_idx]
-                old_prio = old_series.iloc[changed_idx]
-                max_prio = len(new_df)
-                if new_prio < 1: new_prio = 1
-                if new_prio > max_prio: new_prio = max_prio
-                new_df.at[changed_idx, prio_col] = new_prio
-                new_series.iloc[changed_idx] = new_prio
-                conflict_mask = (new_series == new_prio) & (new_series.index != changed_idx)
-                if conflict_mask.any():
-                    conflict_idx = conflict_mask.idxmax()
-                    new_df.at[conflict_idx, prio_col] = old_prio
-        except Exception: pass
-            
+def toggle_lib_item(idx_str, lib_state, lang):
+    new_lib = copy.deepcopy(lib_state)
     try:
-        new_df[prio_col] = pd.to_numeric(new_df[prio_col], errors='coerce').fillna(999).astype(int)
-        new_df = new_df.sort_values(by=prio_col).reset_index(drop=True)
-        new_df[prio_col] = range(1, len(new_df) + 1)
+        idx = int(str(idx_str).split('_')[0])
+        if 0 <= idx < len(new_lib):
+            new_lib[idx]['selected'] = not new_lib[idx].get('selected', False)
     except: pass
-    
-    return new_df, new_df, df_to_tracked_words(new_df)
+    return render_lib_html(new_lib, lang), new_lib
 
-def handle_recipe_df_safe(new_df, state_json, current_str):
-    if new_df is None or new_df.empty: return gr.update(), "{}", gr.update()
-    new_json = new_df.to_json(orient='records')
-    if new_json == state_json: return gr.update(), state_json, gr.update()
-    
-    old_df = pd.read_json(io.StringIO(state_json), orient='records') if state_json != "{}" else pd.DataFrame()
-    processed_df, _, new_str = handle_df_edit(new_df, old_df)
-    processed_json = processed_df.to_json(orient='records')
-    
-    str_update = new_str if norm_tracked_words(new_str) != norm_tracked_words(current_str) else gr.update()
-    return processed_df, processed_json, str_update
-
-def handle_stats_df_safe(new_df, state_json, current_str):
-    if new_df is None or new_df.empty: return gr.update(), "{}", gr.update()
-    new_json = new_df.to_json(orient='records')
-    if new_json == state_json: return gr.update(), state_json, gr.update()
-    
-    new_str = df_to_tracked_words(new_df)
-    str_update = new_str if norm_tracked_words(new_str) != norm_tracked_words(current_str) else gr.update()
-    return gr.update(), new_json, str_update
-
-def handle_drag_and_drop(dnd_data, current_df):
-    if not dnd_data or current_df is None or current_df.empty: return current_df, gr.update()
+def delete_lib_item(idx_str, lib_state, lang):
+    new_lib = copy.deepcopy(lib_state)
     try:
-        old_idx, new_idx = map(int, dnd_data.split(','))
-        if old_idx < 0 or old_idx >= len(current_df) or new_idx < 0 or new_idx >= len(current_df): return current_df, gr.update()
-        df_list = current_df.to_dict('records')
-        item = df_list.pop(old_idx)
-        df_list.insert(new_idx, item)
-        new_df = pd.DataFrame(df_list)
-        prio_col = "Priorité" if "Priorité" in new_df.columns else "Priority"
-        new_df[prio_col] = range(1, len(new_df) + 1)
-        return new_df, df_to_tracked_words(new_df)
-    except: return current_df, gr.update()
+        idx = int(str(idx_str).split('_')[0])
+        if 0 <= idx < len(new_lib):
+            new_lib.pop(idx)
+    except: pass
+    return render_lib_html(new_lib, lang), new_lib
 
-def generate_civitai_format(df):
-    if df is None or df.empty: return ""
-    md = "| " + " | ".join(df.columns) + " |\n"
-    md += "|" + "|".join(["---" for _ in df.columns]) + "|\n"
-    for _, row in df.iterrows(): md += "| " + " | ".join(str(x) for x in row.values) + " |\n"
-    gr.Info("✅ Format CivitAI généré ! Copiez le texte ci-dessous.")
-    return md
+def uncheck_all_lib(lib_state, lang):
+    new_lib = copy.deepcopy(lib_state)
+    for x in new_lib: x['selected'] = False
+    return render_lib_html(new_lib, lang), new_lib
+
+def clear_lib(lang):
+    return render_lib_html([], lang), []
+
+def batch_library_cb(dataset, lib_state, mode, replace_target, selected_ids, search_text, current_idx, tracked_words, lang):
+    history = copy.deepcopy(dataset)
+    new_dataset = copy.deepcopy(dataset)
+    count = 0
+    m = MSG.get(lang, MSG["FR"])
+
+    selected_items = [x['text'] for x in lib_state if x.get('selected', False)]
+    target = str(replace_target).strip() if replace_target else ""
+
+    if "Ajouter" in mode or "Add" in mode:
+        action_mode = "Add"
+    elif "Retirer" in mode or "Remove" in mode:
+        action_mode = "Remove"
+    else:
+        action_mode = "Replace"
+
+    if action_mode == "Add" and not selected_items:
+        gr.Warning(m.get("lib_warn_add", "⚠️ Veuillez cocher au moins un mot !"))
+        cap, hl, wc = get_updated_viewer_data(new_dataset, current_idx, tracked_words, lang)
+        return new_dataset, new_dataset, history, m.get("text_empty", ""), pd.DataFrame(), cap, hl, wc, gr.update()
+        
+    elif action_mode == "Remove" and not selected_items and not target:
+        gr.Warning(m.get("lib_warn_rem", "⚠️ Entrez une Cible OU cochez un mot !"))
+        cap, hl, wc = get_updated_viewer_data(new_dataset, current_idx, tracked_words, lang)
+        return new_dataset, new_dataset, history, m.get("text_empty", ""), pd.DataFrame(), cap, hl, wc, gr.update()
+        
+    elif action_mode == "Replace" and not target:
+        gr.Warning(m.get("lib_warn_rep", "⚠️ Spécifiez ce qu'il faut remplacer !"))
+        cap, hl, wc = get_updated_viewer_data(new_dataset, current_idx, tracked_words, lang)
+        return new_dataset, new_dataset, history, m.get("text_empty", ""), pd.DataFrame(), cap, hl, wc, gr.update()
+
+    for item in new_dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        cap = item['caption']; original_cap = cap
+
+        if action_mode == "Add":
+            existing_tags = [t.strip().lower() for t in cap.split(',')]
+            for lib_item in selected_items:
+                if lib_item.lower() not in existing_tags:
+                    sep = ", " if cap and not cap.endswith(", ") else ""
+                    cap = cap + sep + lib_item
+                    existing_tags.append(lib_item.lower())
+                    
+        elif action_mode == "Remove":
+            for lib_item in selected_items:
+                cap = re.sub(r'(?i)\b' + re.escape(lib_item) + r'\b,?', '', cap)
+            if target:
+                cap = re.sub(r'(?i)\b' + re.escape(target) + r'\b,?', '', cap)
+            cap = re.sub(r',\s*,', ',', cap).strip(', ')
+            
+        elif action_mode == "Replace":
+            if target and re.search(r'(?i)\b' + re.escape(target) + r'\b', cap):
+                replacement = ", ".join(selected_items)
+                pattern = re.compile(r'(?i)\b' + re.escape(target) + r'\b')
+                cap = pattern.sub(replacement, cap)
+
+        if cap != original_cap:
+            item['caption'] = cap; count += 1
+
+    save_all_captions(new_dataset)
+    cible_msg = m.get("target_sel", "(sur {count} ciblées)").format(count=len(selected_ids)) if selected_ids else m.get("target_all", "(sur TOUT le dataset)")
+    msg = m.get("lib_batch_success", "✅ Mass Batch appliqué dans {count} images {cible_msg}.").format(count=count, cible_msg=cible_msg)
+    gr.Info(msg)
+    
+    filtered_dataset = [item for item in new_dataset if search_text.lower() in item['caption'].lower()] if search_text else new_dataset
+    cap_disp, hl_disp, wc_disp = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    
+    changes = []
+    for old, new in zip(history, new_dataset):
+        if old['caption'] != new['caption']:
+            changes.append({"File" if lang=="EN" else "Fichier": old['img_name'], "Avant" if lang=="FR" else "Before": old['caption'], "Après" if lang=="FR" else "After": new['caption']})
+            if len(changes) >= 10: break
+    if not changes: df_res = pd.DataFrame([{"Message": m.get("no_changes", "Aucun changement.")}])
+    else: df_res = pd.DataFrame(changes)
+        
+    return new_dataset, filtered_dataset, history, msg, df_res, cap_disp, hl_disp, wc_disp, get_gallery_items(filtered_dataset, lang)
+
+# === TRADUCTION ===
+def translate_text(text, engine, source_lang, dest_lang, api_backend, api_url, llm_model, lang="FR"):
+    m = MSG.get(lang, MSG["FR"])
+    if not text: return ""
+    if engine == "Google (Online)":
+        if not HAS_TRANSLATOR: return m.get("err_trans_no_install", "⚠️ Error: deep-translator not installed.")
+        lang_map = {"auto": "auto", "fr": "fr", "es": "es", "de": "de", "it": "it", "pt": "pt", "ru": "ru", "ja": "ja", "ko": "ko", "zh-CN": "zh-CN", "en": "en"}
+        src = lang_map.get(source_lang, source_lang.split(" ")[0]) if source_lang else "auto"
+        dst = lang_map.get(dest_lang, dest_lang.split(" ")[0]) if dest_lang else "en"
+        try: 
+            translator = GoogleTranslator(source=src, target=dst)
+            parts = [p.strip() for p in text.split(',')]
+            translated_parts = []
+            for p in parts:
+                if not p: continue
+                try:
+                    trans = translator.translate(p)
+                    translated_parts.append(trans if trans else p)
+                except:
+                    translated_parts.append(p)
+            return ", ".join(translated_parts)
+        except Exception as e: return m.get("err_google_trans", "⚠️ Google Translate Error: {error}").format(error=str(e))
+    else:
+        return call_ai_api(f"Translate the following text from {source_lang} to {dest_lang}. ONLY output the translation, nothing else.\nText: {text}", llm_model, None, api_backend, api_url, 0.3, 1024, "You are a professional translator.")
+
+def do_live_translation(caption, engine, dest_lang, api_backend, api_url, llm_model, lang):
+    if not caption: return ""
+    try:
+        res = translate_text(caption, engine, "auto", dest_lang, api_backend, api_url, llm_model, lang)
+        if res and res.startswith("⚠️"): return res
+        return res
+    except Exception as e:
+        return f"Erreur: {e}"
+
+def translate_entire_caption_action(dataset, filtered_dataset, idx, caption, engine, source_lang, api_backend, api_url, llm_model, tracked_words, lang):
+    new_dataset = copy.deepcopy(dataset)
+    new_filtered = [item for item in new_dataset if item['id'] in [x['id'] for x in filtered_dataset]]
+    m = MSG.get(lang, MSG["FR"])
+
+    if not caption: 
+        cap, hl_html, wc = get_updated_viewer_data(new_filtered, idx, tracked_words, lang)
+        return new_dataset, new_filtered, cap, hl_html, wc, m.get("trans_no_text", "Aucun texte")
+        
+    res = translate_text(caption, engine, source_lang, "en", api_backend, api_url, llm_model, lang)
+    
+    if res and res.startswith("⚠️"):
+        gr.Warning(res)
+        cap, hl_html, wc = get_updated_viewer_data(new_filtered, idx, tracked_words, lang)
+        return new_dataset, new_filtered, cap, hl_html, wc, ""
+    elif res:
+        gr.Info(m.get("trans_entire_success", "✅ Caption complet traduit !"))
+        if idx >= 0 and idx < len(new_filtered):
+            new_filtered[idx]['caption'] = res
+            new_dataset[new_filtered[idx]['id']]['caption'] = res
+            txt_path = new_filtered[idx]['txt_path']
+            if os.path.exists(txt_path) and os.path.getsize(txt_path) > 0:
+                shutil.copy2(txt_path, txt_path + ".bak")
+            with open(txt_path, 'w', encoding='utf-8') as f:
+                f.write(res)
+                
+            cap, hl_html, wc = get_updated_viewer_data(new_filtered, idx, tracked_words, lang)
+            return new_dataset, new_filtered, cap, hl_html, wc, m.get("trans_to_en_success", "✅ Traduit")
+        else:
+            return new_dataset, new_filtered, res, get_highlighted_html(res, tracked_words), update_word_count(res, lang), m.get("trans_to_en_success", "✅ Traduit")
+        
+    cap, hl_html, wc = get_updated_viewer_data(new_filtered, idx, tracked_words, lang)
+    return new_dataset, new_filtered, cap, hl_html, wc, ""
+
+def trans_insert(text_to_trans, current_caption, engine, source_lang, api_backend, api_url, llm_model, lang):
+    if not text_to_trans: return current_caption
+    res = translate_text(text_to_trans, engine, source_lang, "en", api_backend, api_url, llm_model, lang)
+    if res and not res.startswith("⚠️"):
+        sep = ", " if current_caption and not current_caption.endswith(", ") else ""
+        return current_caption + sep + res
+    elif res and res.startswith("⚠️"):
+        gr.Warning(res)
+    return current_caption
+
+# =========================================================================
+# RESTE DES FONCTIONS STANDARD (Export, Doublons, IA, Stats)
+# =========================================================================
+
+def create_preview_df(old_dataset, new_dataset, lang):
+    changes = []
+    for old, new in zip(old_dataset, new_dataset):
+        if old['caption'] != new['caption']:
+            changes.append({"File" if lang=="EN" else "Fichier": old['img_name'], "Avant" if lang=="FR" else "Before": old['caption'], "Après" if lang=="FR" else "After": new['caption']})
+            if len(changes) >= 10: break
+    if not changes: return pd.DataFrame([{"Message": MSG[lang].get("no_changes", "No change")}])
+    return pd.DataFrame(changes)
+
+def batch_add(dataset, text, pos, selected_ids, search_text, current_idx, tracked_words, lang):
+    if not text: 
+        cap, hl, wc = get_updated_viewer_data(dataset, current_idx, tracked_words, lang)
+        return dataset, dataset, dataset, MSG[lang].get("text_empty", ""), pd.DataFrame(), cap, hl, wc
+    history = copy.deepcopy(dataset)
+    count = 0
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        if pos in ["Début", "Start"]:
+            sep = ", " if item['caption'] else ""
+            item['caption'] = text + sep + item['caption']
+        else:
+            sep = ", " if item['caption'] and not item['caption'].endswith(", ") else ""
+            item['caption'] = item['caption'] + sep + text
+        count += 1
+    save_all_captions(dataset)
+    msg = MSG[lang].get("added_to", "Added").format(count=count)
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang), cap, hl, wc
+
+def batch_replace(dataset, old_text, new_text, use_regex, selected_ids, search_text, current_idx, tracked_words, lang):
+    history = copy.deepcopy(dataset)
+    count = 0
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        if use_regex:
+            try:
+                new_cap = re.sub(old_text, new_text, item['caption'])
+                if new_cap != item['caption']: item['caption'] = new_cap; count += 1
+            except: pass
+        else:
+            if old_text in item['caption']: item['caption'] = item['caption'].replace(old_text, new_text); count += 1
+    save_all_captions(dataset)
+    msg = MSG[lang].get("replaced_in", "Replaced").format(count=count)
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang), cap, hl, wc
+
+def batch_clean_commas(dataset, selected_ids, search_text, current_idx, tracked_words, lang):
+    history = copy.deepcopy(dataset)
+    count = 0
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        cap = item['caption']
+        cap = re.sub(r'\s+', ' ', cap)
+        cap = re.sub(r'\s*,\s*', ', ', cap)
+        cap = re.sub(r'(,\s*){2,}', ', ', cap)
+        cap = cap.strip(', ')
+        if cap != item['caption']: item['caption'] = cap; count += 1
+    save_all_captions(dataset)
+    msg = MSG[lang].get("cleaned_in", "Cleaned").format(count=count)
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang), cap, hl, wc
+
+def batch_remove_duplicates(dataset, selected_ids, search_text, current_idx, tracked_words, lang):
+    history = copy.deepcopy(dataset)
+    count = 0
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        parts = [p.strip() for p in item['caption'].split(',')]
+        seen = set(); new_parts = []
+        for p in parts:
+            if p.lower() not in seen and p != "": seen.add(p.lower()); new_parts.append(p)
+        new_cap = ", ".join(new_parts)
+        if new_cap != item['caption']: item['caption'] = new_cap; count += 1
+    save_all_captions(dataset)
+    msg = MSG[lang].get("dups_removed", "Removed").format(count=count)
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang), cap, hl, wc
+
+def batch_synonyms(dataset, target_tag, synonyms_str, selected_ids, search_text, current_idx, tracked_words, lang):
+    history = copy.deepcopy(dataset)
+    if not target_tag: 
+        cap, hl, wc = get_updated_viewer_data(dataset, current_idx, tracked_words, lang)
+        return dataset, dataset, dataset, MSG[lang].get("target_empty", ""), pd.DataFrame(), cap, hl, wc
+    count = 0
+    syn_list = [s.strip() for s in synonyms_str.split(',')] if synonyms_str else []
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        original = item['caption']
+        tags = [t.strip() for t in original.split(',')]
+        first_found = False; syn_idx = 0; new_tags = []
+        for t in tags:
+            if t.lower() == target_tag.strip().lower():
+                if not first_found: first_found = True; new_tags.append(t)
+                else:
+                    if syn_list and syn_list[0]: new_tags.append(syn_list[syn_idx % len(syn_list)]); syn_idx += 1
+            else: new_tags.append(t)
+        new_cap = ", ".join([t for t in new_tags if t])
+        if new_cap != original: item['caption'] = new_cap; count += 1
+    save_all_captions(dataset)
+    msg = MSG[lang].get("synonyms_replaced", "Replaced").format(count=count)
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang), cap, hl, wc
+
+def simulate_and_export(dataset, export_dir, config_df, is_simulation, selected_ids, strategy, max_images, lang):
+    if not dataset: return MSG[lang].get("no_dataset", ""), [], None, None
+    if config_df is None or config_df.empty: 
+        config_df = pd.DataFrame([{MSG[lang].get("df_prio", "Prio"): 1, MSG[lang].get("df_kw", "Kw"): "", MSG[lang].get("df_tgt", "Tgt"): 0}])
+    else:
+        prio_col = "Priority" if "Priority" in config_df.columns else "Priorité"
+        config_df[prio_col] = pd.to_numeric(config_df[prio_col], errors='coerce').fillna(999).astype(int)
+        config_df = config_df.sort_values(by=prio_col)
+    
+    targets = {}; ordered_tags = []
+    for _, row in config_df.iterrows():
+        tag = str(row.get("Mot-clé", row.get("Keyword", ""))).strip().lower()
+        if tag and tag not in ["aucun", "none"]:
+            try: c = float(str(row.get("Cible %", row.get("Target %", 0))).replace('%', '').strip())
+            except: c = 0.0
+            targets[tag] = c
+            ordered_tags.append(tag)
+
+    base_pool = [item for item in dataset if not selected_ids or item['id'] in selected_ids]
+    to_export = []
+    limit = int(max_images)
+
+    if strategy in ["Filtre Classique", "Classic Filter", "Filtre Classique (Contient au moins un tag)", "Classic Filter (Contains at least one tag)"]:
+        for item in base_pool:
+            if not ordered_tags or any(re.search(r'\b' + re.escape(t) + r'\b', item['caption'].lower()) for t in ordered_tags):
+                to_export.append(item)
+        if limit > 0: to_export = to_export[:limit]
+
+    elif strategy in ["Priorité", "Priority", "Priorité (Ordre du tableau)", "Priority (Table Order)"]:
+        seen = set()
+        lim = limit if limit > 0 else len(base_pool)
+        for tag in ordered_tags:
+            for item in base_pool:
+                if len(to_export) >= lim: break
+                if item['id'] not in seen and re.search(r'\b' + re.escape(tag) + r'\b', item['caption'].lower()):
+                    to_export.append(item); seen.add(item['id'])
+            if len(to_export) >= lim: break
+
+    elif strategy in ["Équilibrage Auto (Pourcentages)", "Auto Balancing (Percentages)"]:
+        relevant = [it for it in base_pool if not ordered_tags or any(re.search(r'\b'+re.escape(t)+r'\b', it['caption'].lower()) for t in ordered_tags)]
+        lim = limit if limit > 0 else len(relevant)
+        if lim > 0 and ordered_tags:
+            needs = {tag: int((pct / 100.0) * lim) for tag, pct in targets.items() if pct > 0}
+            if sum(needs.values()) == 0: to_export = relevant[:lim]
+            else:
+                available = relevant.copy()
+                while len(to_export) < lim and available:
+                    best_score = -9999; best_idx = -1
+                    for i, item in enumerate(available):
+                        cap = available[i]['caption'].lower(); score = 0; has_tag = False
+                        for tag in ordered_tags:
+                            if re.search(r'\b' + re.escape(tag) + r'\b', cap):
+                                has_tag = True
+                                if tag in needs: score += (10 * needs[tag]) if needs[tag] > 0 else -5
+                        if has_tag and score > best_score: best_score = score; best_idx = i
+                    if best_idx == -1: break
+                    chosen = available.pop(best_idx)
+                    to_export.append(chosen)
+                    for tag in ordered_tags:
+                        if re.search(r'\b' + re.escape(tag) + r'\b', chosen['caption'].lower()) and tag in needs: needs[tag] -= 1
+        else: to_export = relevant[:lim]
+
+    sim_stats = {t: 0 for t in ordered_tags}
+    for item in to_export:
+        cap = item['caption'].lower()
+        for t in ordered_tags:
+            if re.search(r'\b' + re.escape(t) + r'\b', cap): sim_stats[t] += 1
+            
+    pie_data = {k: v for k, v in sim_stats.items() if v > 0}
+    if not pie_data:
+        p_fig = px.pie(names=[MSG[lang].get("none", "Aucun")], values=[1], title=MSG[lang].get("no_tag_found", "Aucun tag trouvé"))
+        b_fig = px.bar(x=[MSG[lang].get("none", "Aucun")], y=[0], title=MSG[lang].get("no_tag_found", "Aucun tag trouvé"))
+    else:
+        p_fig = px.pie(names=list(pie_data.keys()), values=list(pie_data.values()), title=MSG[lang].get("overall_dist", "Répartition Globale"))
+        p_fig.update_traces(textposition='inside', textinfo='percent+label')
+        b_fig = px.bar(x=list(pie_data.keys()), y=list(pie_data.values()), title=MSG[lang].get("occ_by_keyword", "Occurrences par Mot-clé"))
+
+    gallery_preview = [item['img_path'] for item in to_export]
+    
+    if is_simulation:
+        rep = MSG[lang].get("simul_res", "Simul: {count}").format(count=len(to_export))
+        gr.Info("📊 Simulation terminée !")
+        return rep, gallery_preview, p_fig, b_fig
+    else:
+        if not export_dir or str(export_dir).strip() == "": export_dir = os.path.join(os.getcwd(), "output", "dataset_final")
+        if not os.path.exists(export_dir): os.makedirs(export_dir)
+        for item in to_export:
+            shutil.copy2(item['img_path'], os.path.join(export_dir, item['img_name']))
+            shutil.copy2(item['txt_path'], os.path.join(export_dir, os.path.basename(item['txt_path'])))
+        msg = MSG[lang].get("export_success", "Success").format(count=len(to_export), dest=export_dir)
+        gr.Info(f"✅ Export réussi dans {export_dir}")
+        return msg, gallery_preview, p_fig, b_fig
 
 def analyze_dataset(dataset, tracked_words_str, lang):
     lang = lang or "FR"
     if not dataset: 
         empty_df = pd.DataFrame()
         return None, None, empty_df, "{}", empty_df, "{}", MSG[lang].get("no_dataset", "")
-        
     if not tracked_words_str: 
         empty_conf = pd.DataFrame([{MSG[lang].get("df_prio", "Prio"): 1, MSG[lang].get("df_kw", "Kw"): "", MSG[lang].get("df_tgt", "Tgt"): 0}])
         empty_stats = pd.DataFrame([{MSG[lang].get("df_kw", "Kw"): "", MSG[lang].get("df_tgt", "Tgt"): ""}])
@@ -778,246 +1028,17 @@ def analyze_dataset(dataset, tracked_words_str, lang):
     
     return fig_pie, fig_bar, df, df_json, df_conf, df_conf_json, MSG[lang].get("stats_updated", "Updated")
 
-def find_orphans(dataset, lang):
-    lang = lang or "FR"
-    if not dataset: return MSG[lang].get("no_dataset", "")
-    all_words = []
-    for item in dataset:
-        tags = [t.strip().lower() for t in item['caption'].split(',')]
-        all_words.extend(tags)
-    counts = Counter(all_words)
-    orphans = [tag for tag, count in counts.items() if count == 1 and len(tag) > 2]
-    if not orphans: return MSG[lang].get("no_orphans", "No orphans")
-    return MSG[lang].get("unique_tags", "Unique:\n") + ", ".join(sorted(orphans))
-
-def auto_fill_top_tags(dataset):
-    if not dataset: return ""
-    all_words = []
-    for item in dataset:
-        tags = [t.strip().lower() for t in item['caption'].split(',')]
-        all_words.extend([t for t in tags if t])
-    counts = Counter(all_words)
-    return ", ".join([tag for tag, count in counts.most_common(20)])
-
-def load_recipes():
-    if os.path.exists(RECIPES_FILE):
-        with open(RECIPES_FILE, 'r') as f: return json.load(f)
-    return {"Default": "1girl, solo, looking at viewer"}
-
-def save_recipe(name, words):
-    if not name: return gr.update(), "Empty name"
-    recipes = load_recipes()
-    recipes[name] = words
-    with open(RECIPES_FILE, 'w') as f: json.dump(recipes, f)
-    gr.Info("✅ Recette sauvegardée avec succès !")
-    return gr.update(choices=list(recipes.keys()), value=name), "✅ Saved"
-
-def apply_recipe(name): return load_recipes().get(name, "")
-
-def save_all_captions(dataset):
-    for item in dataset:
-        with open(item['txt_path'], 'w', encoding='utf-8') as f: f.write(item['caption'])
-
-def create_preview_df(old_dataset, new_dataset, lang):
-    changes = []
-    for old, new in zip(old_dataset, new_dataset):
-        if old['caption'] != new['caption']:
-            changes.append({"File" if lang=="EN" else "Fichier": old['img_name'], "Avant" if lang=="FR" else "Before": old['caption'], "Après" if lang=="FR" else "After": new['caption']})
-            if len(changes) >= 10: break
-    if not changes: return pd.DataFrame([{"Message": MSG[lang].get("no_changes", "No change")}])
-    return pd.DataFrame(changes)
-
-def batch_add(dataset, text, pos, selected_ids, search_text, lang):
-    if not text: return dataset, dataset, dataset, MSG[lang].get("text_empty", ""), pd.DataFrame()
-    history = copy.deepcopy(dataset)
-    count = 0
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        if pos in ["Début", "Start"]:
-            sep = ", " if item['caption'] else ""
-            item['caption'] = text + sep + item['caption']
-        else:
-            sep = ", " if item['caption'] and not item['caption'].endswith(", ") else ""
-            item['caption'] = item['caption'] + sep + text
-        count += 1
-    save_all_captions(dataset)
-    msg = MSG[lang].get("added_to", "Added").format(count=count)
-    gr.Info(msg)
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang)
-
-def batch_replace(dataset, old_text, new_text, use_regex, selected_ids, search_text, lang):
-    history = copy.deepcopy(dataset)
-    count = 0
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        if use_regex:
-            try:
-                new_cap = re.sub(old_text, new_text, item['caption'])
-                if new_cap != item['caption']: item['caption'] = new_cap; count += 1
-            except: return dataset, dataset, history, MSG[lang].get("regex_error", "Regex error"), pd.DataFrame()
-        else:
-            if old_text in item['caption']: item['caption'] = item['caption'].replace(old_text, new_text); count += 1
-    save_all_captions(dataset)
-    msg = MSG[lang].get("replaced_in", "Replaced").format(count=count)
-    gr.Info(msg)
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang)
-
-def batch_clean_commas(dataset, selected_ids, search_text, lang):
-    history = copy.deepcopy(dataset)
-    count = 0
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        cap = item['caption']
-        cap = re.sub(r'\s+', ' ', cap)
-        cap = re.sub(r'\s*,\s*', ', ', cap)
-        cap = re.sub(r'(,\s*){2,}', ', ', cap)
-        cap = cap.strip(', ')
-        if cap != item['caption']: item['caption'] = cap; count += 1
-    save_all_captions(dataset)
-    msg = MSG[lang].get("cleaned_in", "Cleaned").format(count=count)
-    gr.Info(msg)
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang)
-
-def batch_remove_duplicates(dataset, selected_ids, search_text, lang):
-    history = copy.deepcopy(dataset)
-    count = 0
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        parts = [p.strip() for p in item['caption'].split(',')]
-        seen = set(); new_parts = []
-        for p in parts:
-            if p.lower() not in seen and p != "": seen.add(p.lower()); new_parts.append(p)
-        new_cap = ", ".join(new_parts)
-        if new_cap != item['caption']: item['caption'] = new_cap; count += 1
-    save_all_captions(dataset)
-    msg = MSG[lang].get("dups_removed", "Removed").format(count=count)
-    gr.Info(msg)
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang)
-
-def batch_synonyms(dataset, target_tag, synonyms_str, selected_ids, search_text, lang):
-    if not target_tag: return dataset, dataset, dataset, MSG[lang].get("target_empty", ""), pd.DataFrame()
-    history = copy.deepcopy(dataset)
-    count = 0
-    syn_list = [s.strip() for s in synonyms_str.split(',')] if synonyms_str else []
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        original = item['caption']
-        tags = [t.strip() for t in original.split(',')]
-        first_found = False; syn_idx = 0; new_tags = []
-        for t in tags:
-            if t.lower() == target_tag.strip().lower():
-                if not first_found: first_found = True; new_tags.append(t)
-                else:
-                    if syn_list and syn_list[0]: new_tags.append(syn_list[syn_idx % len(syn_list)]); syn_idx += 1
-            else: new_tags.append(t)
-        new_cap = ", ".join([t for t in new_tags if t])
-        if new_cap != original: item['caption'] = new_cap; count += 1
-    save_all_captions(dataset)
-    msg = MSG[lang].get("synonyms_replaced", "Replaced").format(count=count)
-    gr.Info(msg)
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, create_preview_df(history, dataset, lang)
-
-def simulate_and_export(dataset, export_dir, config_df, is_simulation, selected_ids, strategy, max_images, lang):
-    if not dataset: return MSG[lang].get("no_dataset", ""), [], None, None
-    if config_df is None or config_df.empty: 
-        config_df = pd.DataFrame([{MSG[lang].get("df_prio", "Prio"): 1, MSG[lang].get("df_kw", "Kw"): "", MSG[lang].get("df_tgt", "Tgt"): 0}])
-    else:
-        prio_col = "Priority" if "Priority" in config_df.columns else "Priorité"
-        config_df[prio_col] = pd.to_numeric(config_df[prio_col], errors='coerce').fillna(999).astype(int)
-        config_df = config_df.sort_values(by=prio_col)
-    
-    targets = {}; ordered_tags = []
-    for _, row in config_df.iterrows():
-        tag = str(row.get("Mot-clé", row.get("Keyword", ""))).strip().lower()
-        if tag and tag not in ["aucun", "none"]:
-            try: c = float(str(row.get("Cible %", row.get("Target %", 0))).replace('%', '').strip())
-            except: c = 0.0
-            targets[tag] = c
-            ordered_tags.append(tag)
-
-    base_pool = [item for item in dataset if not selected_ids or item['id'] in selected_ids]
-    to_export = []
-    limit = int(max_images)
-
-    if strategy in ["Filtre Classique (Contient au moins un tag)", "Classic Filter (Contains at least one tag)"]:
-        for item in base_pool:
-            if not ordered_tags or any(re.search(r'\b' + re.escape(t) + r'\b', item['caption'].lower()) for t in ordered_tags):
-                to_export.append(item)
-        if limit > 0: to_export = to_export[:limit]
-
-    elif strategy in ["Priorité (Ordre du tableau)", "Priority (Table Order)"]:
-        seen = set()
-        lim = limit if limit > 0 else len(base_pool)
-        for tag in ordered_tags:
-            for item in base_pool:
-                if len(to_export) >= lim: break
-                if item['id'] not in seen and re.search(r'\b' + re.escape(tag) + r'\b', item['caption'].lower()):
-                    to_export.append(item); seen.add(item['id'])
-            if len(to_export) >= lim: break
-
-    elif strategy in ["Équilibrage Auto (Pourcentages)", "Auto Balancing (Percentages)"]:
-        relevant = [it for it in base_pool if not ordered_tags or any(re.search(r'\b'+re.escape(t)+r'\b', it['caption'].lower()) for t in ordered_tags)]
-        lim = limit if limit > 0 else len(relevant)
-        if lim > 0 and ordered_tags:
-            needs = {tag: int((pct / 100.0) * lim) for tag, pct in targets.items() if pct > 0}
-            if sum(needs.values()) == 0: to_export = relevant[:lim]
-            else:
-                available = relevant.copy()
-                while len(to_export) < lim and available:
-                    best_score = -9999; best_idx = -1
-                    for i, item in enumerate(available):
-                        cap = item['caption'].lower(); score = 0; has_tag = False
-                        for tag in ordered_tags:
-                            if re.search(r'\b' + re.escape(tag) + r'\b', cap):
-                                has_tag = True
-                                if tag in needs: score += (10 * needs[tag]) if needs[tag] > 0 else -5
-                        if has_tag and score > best_score: best_score = score; best_idx = i
-                    if best_idx == -1: break
-                    chosen = available.pop(best_idx)
-                    to_export.append(chosen)
-                    for tag in ordered_tags:
-                        if re.search(r'\b' + re.escape(tag) + r'\b', chosen['caption'].lower()) and tag in needs: needs[tag] -= 1
-        else: to_export = relevant[:lim]
-
-    sim_stats = {t: 0 for t in ordered_tags}
-    for item in to_export:
-        cap = item['caption'].lower()
-        for t in ordered_tags:
-            if re.search(r'\b' + re.escape(t) + r'\b', cap): sim_stats[t] += 1
-            
-    pie_data = {k: v for k, v in sim_stats.items() if v > 0}
-    if not pie_data:
-        p_fig = px.pie(names=[MSG[lang].get("none", "None")], values=[1], title=MSG[lang].get("sim_no_tag", "No tag"))
-        b_fig = px.bar(x=[MSG[lang].get("none", "None")], y=[0], title=MSG[lang].get("sim_no_tag", "No tag"))
-    else:
-        p_fig = px.pie(names=list(pie_data.keys()), values=list(pie_data.values()), title=MSG[lang].get("sim_dist", "Dist"))
-        p_fig.update_traces(textposition='inside', textinfo='percent+label')
-        b_fig = px.bar(x=list(pie_data.keys()), y=list(pie_data.values()), title=MSG[lang].get("sim_occ", "Occurrences"))
-
-    gallery_preview = [item['img_path'] for item in to_export]
-    
-    if is_simulation:
-        rep = MSG[lang].get("simul_res", "Simul: {count}").format(count=len(to_export))
-        gr.Info("📊 Simulation terminée !")
-        return rep, gallery_preview, p_fig, b_fig
-    else:
-        if not export_dir or str(export_dir).strip() == "": export_dir = os.path.join(os.getcwd(), "output", "dataset_final")
-        if not os.path.exists(export_dir): os.makedirs(export_dir)
-        for item in to_export:
-            shutil.copy2(item['img_path'], os.path.join(export_dir, item['img_name']))
-            shutil.copy2(item['txt_path'], os.path.join(export_dir, os.path.basename(item['txt_path'])))
-        msg = MSG[lang].get("export_success", "Success").format(count=len(to_export), dest=export_dir)
-        gr.Info(f"✅ Export réussi dans {export_dir}")
-        return msg, gallery_preview, p_fig, b_fig
-
-# ==========================================
-# MODULE 1 PRO : PRÉ-TRAITEMENT & DOUBLONS
-# ==========================================
+def toggle_tracked_word(current_tracker, selected_text):
+    if not selected_text: return gr.update()
+    word = selected_text.strip(', ')
+    if not word: return gr.update()
+    current_list = [w.strip() for w in current_tracker.split(',') if w.strip()]
+    existing = []; found = False
+    for w in current_list:
+        if w.split(':')[0].strip().lower() == word.lower(): found = True 
+        else: existing.append(w)
+    if not found: existing.append(word) 
+    return ", ".join(existing)
 
 def scan_duplicates_advanced(dataset, tolerance):
     if not HAS_IMAGEHASH:
@@ -1085,14 +1106,12 @@ def batch_rename_dataset(dataset, prefix):
     prefix = prefix.strip()
     count = 1
     dir_path = os.path.dirname(dataset[0]['img_path'])
-    
     for item in dataset:
         ext = os.path.splitext(item['img_name'])[1]
         new_img_name = f"{prefix}_{count:04d}{ext}"
         new_txt_name = f"{prefix}_{count:04d}.txt"
         new_img_path = os.path.join(dir_path, new_img_name)
         new_txt_path = os.path.join(dir_path, new_txt_name)
-        
         try:
             os.rename(item['img_path'], new_img_path)
             if os.path.exists(item['txt_path']): os.rename(item['txt_path'], new_txt_path)
@@ -1101,7 +1120,6 @@ def batch_rename_dataset(dataset, prefix):
             item['txt_path'] = new_txt_path
         except: pass
         count += 1
-        
     gr.Info("Renommage par lot effectué !")
     return dataset, "✅ Dataset renommé."
 
@@ -1109,13 +1127,11 @@ def batch_process_images(dataset, dest_folder, size, format_choice, crop_mode, h
     if not dataset: return "Aucun dataset."
     if not dest_folder: dest_folder = os.path.join(os.getcwd(), "processed_dataset")
     os.makedirs(dest_folder, exist_ok=True)
-    
     count = 0
     target_size = int(size)
     for item in dataset:
         try:
             img = Image.open(item['img_path'])
-            
             if handle_alpha and (img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)):
                 bg = Image.new('RGB', img.size, (255, 255, 255))
                 if img.mode == 'P': img = img.convert('RGBA')
@@ -1129,7 +1145,6 @@ def batch_process_images(dataset, dest_folder, size, format_choice, crop_mode, h
                 gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
                 face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
                 faces = face_cascade.detectMultiScale(gray, 1.1, 4)
-                
                 if len(faces) > 0:
                     x, y, w_face, h_face = faces[0]
                     center_x, center_y = x + w_face//2, y + h_face//2
@@ -1143,179 +1158,22 @@ def batch_process_images(dataset, dest_folder, size, format_choice, crop_mode, h
                     if bottom - top < min_dim: top = bottom - min_dim
                     img = img.crop((left, top, right, bottom))
                 else:
-                    w, h = img.size
-                    min_dim = min(w, h)
+                    w, h = img.size; min_dim = min(w, h)
                     img = img.crop(((w-min_dim)/2, (h-min_dim)/2, (w+min_dim)/2, (h+min_dim)/2))
             elif crop_mode == "1:1 (Carré Centre)":
-                w, h = img.size
-                min_dim = min(w, h)
+                w, h = img.size; min_dim = min(w, h)
                 img = img.crop(((w-min_dim)/2, (h-min_dim)/2, (w+min_dim)/2, (h+min_dim)/2))
             
             img.thumbnail((target_size, target_size), Image.Resampling.LANCZOS)
             ext = ".webp" if format_choice == "WebP" else ".jpg"
             new_name = os.path.splitext(item['img_name'])[0] + ext
             save_path = os.path.join(dest_folder, new_name)
-            
             img.save(save_path, format="WEBP" if format_choice=="WebP" else "JPEG", quality=95)
             new_txt_name = os.path.splitext(item['img_name'])[0] + ".txt"
             shutil.copy2(item['txt_path'], os.path.join(dest_folder, new_txt_name))
             count += 1
         except Exception as e: print(f"Erreur pré-traitement sur {item['img_name']}: {e}")
-        
     return f"✅ {count} images traitées avec succès !"
-
-# ==========================================
-# MODULE 2 PRO : IA (VLM & LLM via API)
-# ==========================================
-
-def load_ai_recipes():
-    if os.path.exists(AI_RECIPES_FILE):
-        with open(AI_RECIPES_FILE, 'r') as f: return json.load(f)
-    return {"Default Flux Style": "Réécris ces tags en une phrase naturelle parfaite pour le modèle Flux : {tags}"}
-
-def save_ai_recipe(name, prompt):
-    if not name: return gr.update()
-    recipes = load_ai_recipes()
-    recipes[name] = prompt
-    with open(AI_RECIPES_FILE, 'w') as f: json.dump(recipes, f)
-    gr.Info("Template IA sauvegardé !")
-    return gr.update(choices=list(recipes.keys()), value=name)
-
-def apply_ai_recipe(name): return load_ai_recipes().get(name, "")
-
-AI_ACTION_DESCRIPTIONS = {
-    "Auto-Taggage / Super OCR (VLM)": "**Vision :** Analyse complète de l'image et extraction du texte.",
-    "Reality Check & Hallucinations (VLM)": "**Vision :** Supprime les tags inexistants dans l'image réelle.",
-    "Concept Isolator (Spécial LoRA)": "**Vision :** Décrit tout SAUF le sujet central.",
-    "Traducteur Visuel (Booru ↔ Phrase Naturelle)": "**Texte :** Convertit des tags bruts en une belle phrase.",
-    "Tag Sorting & Standardisation": "**Texte :** Ordonne l'importance des tags et corrige l'orthographe.",
-    "Traduction Automatique (Vers Anglais)": "**Texte :** Traduit proprement vers l'anglais.",
-    "✨ Prompt Personnalisé (Texte/Vision)": "**Custom :** Utilisez le champ 'Prompt Personnalisé' ci-dessous."
-}
-
-def update_ai_action_desc(action):
-    show_custom = action == "✨ Prompt Personnalisé (Texte/Vision)"
-    desc = AI_ACTION_DESCRIPTIONS.get(action, "")
-    return f"<div class='ai-desc-box'>ℹ️ {desc}</div>", gr.update(visible=show_custom), gr.update(visible=show_custom)
-
-def call_ai_api(prompt, model, image_path, api_backend, api_url, temp, ctx, sys_prompt):
-    api_url = str(api_url).strip()
-    if not api_url.startswith("http"): api_url = "http://" + api_url
-    
-    b64 = None
-    if image_path:
-        with open(image_path, "rb") as f:
-            b64 = base64.b64encode(f.read()).decode("utf-8")
-            
-    if api_backend == "Ollama":
-        if not api_url.endswith("/api/generate") and not api_url.endswith("/api/chat"):
-            api_url = api_url.rstrip("/") + "/api/generate"
-            
-        payload = {"model": model, "prompt": prompt, "stream": False, "options": {"temperature": float(temp), "num_ctx": int(ctx)}}
-        if sys_prompt: payload["system"] = str(sys_prompt).strip()
-        if b64: payload["images"] = [b64]
-        
-        try:
-            response = requests.post(api_url, json=payload, timeout=180)
-            response.raise_for_status()
-            return response.json().get("response", "").strip()
-        except requests.exceptions.ConnectionError:
-            return f"Erreur API: Connexion impossible à {api_url}. Ollama est-il lancé ?"
-        except Exception as e: return f"Erreur API Ollama: {e}"
-        
-    else:
-        if api_url.endswith("/"): api_url = api_url[:-1]
-        if not api_url.endswith("/v1/chat/completions"):
-            api_url = api_url + "/v1/chat/completions"
-            
-        messages = []
-        if sys_prompt: messages.append({"role": "system", "content": str(sys_prompt).strip()})
-        
-        if b64:
-            messages.append({
-                "role": "user", 
-                "content": [
-                    {"type": "text", "text": prompt},
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}
-                ]
-            })
-        else:
-            messages.append({"role": "user", "content": prompt})
-            
-        payload = {"model": model, "messages": messages, "temperature": float(temp), "max_tokens": int(ctx)}
-        
-        try:
-            response = requests.post(api_url, json=payload, timeout=180)
-            response.raise_for_status()
-            return response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        except requests.exceptions.ConnectionError:
-            return f"Erreur API: Connexion impossible à {api_url}. Le serveur LM Studio/Kobold est-il lancé ?"
-        except Exception as e: return f"Erreur API OpenAI Compatible: {e}"
-
-def process_ai_action(dataset, selected_ids, search_text, action, custom_prompt, injection_mode, use_vision_for_custom, vlm_model, llm_model, api_backend, api_url, temp, ctx, sys_prompt, lang):
-    if not dataset: return dataset, dataset, dataset, "Dataset vide.", extract_all_tags(dataset)
-    history = copy.deepcopy(dataset)
-    count = 0
-    errors = []
-    
-    for item in dataset:
-        if selected_ids and item['id'] not in selected_ids: continue
-        current_cap = item['caption']
-        new_cap = current_cap
-        res = ""
-        
-        try:
-            if action == "Auto-Taggage / Super OCR (VLM)":
-                res = call_ai_api("Décris cette image en détail (virgules). Ajoute le texte lu sous la forme text: \"le texte\".", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "Reality Check & Hallucinations (VLM)":
-                res = call_ai_api(f"Tags actuels: '{current_cap}'. Ne renvoie QUE les tags réellement présents.", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "Concept Isolator (Spécial LoRA)":
-                res = call_ai_api("Décris l'arrière-plan et le style, NE DÉCRIS PAS le sujet principal.", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "Traducteur Visuel (Booru ↔ Phrase Naturelle)":
-                res = call_ai_api(f"Transforme en phrase anglaise fluide pour Flux : {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "Traduction Automatique (Vers Anglais)":
-                res = call_ai_api(f"Translate into English, keep comma format: {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "Tag Sorting & Standardisation":
-                res = call_ai_api(f"Ordonne (Sujet, Vêtements, Fond) et corrige: {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
-            elif action == "✨ Prompt Personnalisé (Texte/Vision)":
-                model_to_use = vlm_model if use_vision_for_custom else llm_model
-                img_path_to_use = item['img_path'] if use_vision_for_custom else None
-                prompt_to_use = custom_prompt.replace("{tags}", current_cap)
-                res = call_ai_api(prompt_to_use, model_to_use, img_path_to_use, api_backend, api_url, temp, ctx, sys_prompt)
-            
-            if res.startswith("Erreur API"):
-                errors.append(item['img_name'])
-                gr.Warning(res)
-                continue
-                
-            if injection_mode == "Remplacer tout" or action != "✨ Prompt Personnalisé (Texte/Vision)": new_cap = res
-            elif injection_mode == "Ajouter au début": new_cap = res + ", " + current_cap if current_cap else res
-            elif injection_mode == "Ajouter à la fin": new_cap = current_cap + ", " + res if current_cap else res
-            
-            if new_cap != current_cap:
-                item['caption'] = new_cap
-                count += 1
-        except:
-            errors.append(item['img_name'])
-            
-    save_all_captions(dataset)
-    
-    msg = f"✅ IA Appliquée ({count} modifiés)."
-    if errors: msg += f" ⚠️ Échecs sur {len(errors)} fichiers (Timeout/Erreur)."
-    gr.Info(msg)
-    
-    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
-    return dataset, filtered_dataset, history, msg, extract_all_tags(dataset)
-
-def analyze_bias(dataset, llm_model, api_backend, api_url, temp, ctx, sys_prompt):
-    if not dataset: return "Aucun dataset."
-    all_caps = " | ".join([it['caption'] for it in dataset[:50]]) 
-    prompt = f"Tu es un expert en entraînement de modèles IA (LoRA, SDXL). Voici un échantillon des captions de mon dataset : {all_caps}. Fais-moi un bref rapport des biais potentiels (ex: poses répétitives, manques de diversité) et propose des conseils."
-    return call_ai_api(prompt, llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
-
-# ==========================================
-# MODULE STATS AVANCÉES PRO (Points 4, 5, 6)
-# ==========================================
 
 def update_advanced_stats(dataset):
     if not dataset: return None, None, "Aucun dataset", "Aucune contradiction"
@@ -1367,18 +1225,306 @@ def update_advanced_stats(dataset):
     
     return fig_heatmap, fig_scatter, anti_txt, contra_txt
 
-# ==========================================
-# INTERFACE GRADIO & TRADUCTION UI V3.0 PRO
-# ==========================================
+def find_orphans(dataset, lang):
+    lang = lang or "FR"
+    if not dataset: return MSG[lang].get("no_dataset", "")
+    all_words = []
+    for item in dataset:
+        tags = [t.strip().lower() for t in item['caption'].split(',')]
+        all_words.extend(tags)
+    counts = Counter(all_words)
+    orphans = [tag for tag, count in counts.items() if count == 1 and len(tag) > 2]
+    if not orphans: return MSG[lang].get("no_orphans", "No orphans")
+    return MSG[lang].get("unique_tags", "Unique:\n") + ", ".join(sorted(orphans))
 
-def change_language(lang, stats_df, config_df):
+def auto_fill_top_tags(dataset):
+    if not dataset: return ""
+    all_words = []
+    for item in dataset:
+        tags = [t.strip().lower() for t in item['caption'].split(',')]
+        all_words.extend([t for t in tags if t])
+    counts = Counter(all_words)
+    return ", ".join([tag for tag, count in counts.most_common(20)])
+
+def generate_civitai_format(df):
+    if df is None or df.empty: return ""
+    md = "| " + " | ".join(df.columns) + " |\n"
+    md += "|" + "|".join(["---" for _ in df.columns]) + "|\n"
+    for _, row in df.iterrows(): md += "| " + " | ".join(str(x) for x in row.values) + " |\n"
+    gr.Info("✅ Format CivitAI généré ! Copiez le texte ci-dessous.")
+    return md
+
+# === Recettes / Tables Helpers (Pour l'Export) ===
+def df_to_tracked_words(df):
+    if df is None or df.empty: return ""
+    words = []
+    for _, row in df.iterrows():
+        mot = str(row.get("Mot-clé", row.get("Keyword", ""))).strip()
+        if not mot or mot.lower() in ["aucun", "none"]: continue
+        cible = str(row.get("Cible %", row.get("Target %", ""))).replace('%', '').strip()
+        if cible and cible != "-" and cible != "0.0" and cible != "0": words.append(f"{mot}:{cible}")
+        else: words.append(mot)
+    return ", ".join(words)
+
+def norm_tracked_words(s):
+    if not s or not isinstance(s, str): return ""
+    return ",".join(sorted([w.strip().lower() for w in s.split(',') if w.strip()]))
+
+def safe_df_to_tracked_words(df, current_str):
+    new_str = df_to_tracked_words(df)
+    if norm_tracked_words(new_str) == norm_tracked_words(current_str): return gr.update()
+    return new_str
+
+def get_row_index(evt: gr.SelectData, state_json):
+    row_idx = evt.index[0]
+    if not state_json or state_json == "{}": return row_idx, gr.update(), gr.update()
+    df = pd.read_json(io.StringIO(state_json), orient='records')
+    if df.empty or row_idx >= len(df): return row_idx, gr.update(), gr.update()
+    prio_col = "Priorité" if "Priorité" in df.columns else "Priority"
+    tgt_col = "Cible %" if "Cible %" in df.columns else "Target %"
+    prio_val = str(df.at[row_idx, prio_col])
+    tgt_val = str(df.at[row_idx, tgt_col]).replace('%', '')
+    try: tgt_val = float(tgt_val)
+    except: tgt_val = 0.0
+    return row_idx, prio_val, tgt_val
+
+def apply_quick_prio(new_prio, row_idx, state_json):
+    if row_idx < 0 or not state_json or state_json == "{}": return gr.update(), state_json, gr.update(), row_idx
+    df = pd.read_json(io.StringIO(state_json), orient='records')
+    if df.empty or row_idx >= len(df): return gr.update(), state_json, gr.update(), row_idx
+    prio_col = "Priorité" if "Priorité" in df.columns else "Priority"
+    try: new_prio_int = int(new_prio)
+    except: return gr.update(), state_json, gr.update(), row_idx
+    max_prio = len(df)
+    if new_prio_int < 1: new_prio_int = 1
+    if new_prio_int > max_prio: new_prio_int = max_prio
+    old_prio = df.at[row_idx, prio_col]
+    if old_prio == new_prio_int: return gr.update(), state_json, gr.update(), row_idx
+    conflict_mask = df[prio_col] == new_prio_int
+    if conflict_mask.any():
+        conflict_idx = conflict_mask.idxmax()
+        df.at[conflict_idx, prio_col] = old_prio
+    df.at[row_idx, prio_col] = new_prio_int
+    df = df.sort_values(by=prio_col).reset_index(drop=True)
+    df[prio_col] = range(1, len(df) + 1)
+    new_row_idx = df.index[df[prio_col] == new_prio_int].tolist()[0]
+    new_json = df.to_json(orient='records')
+    return df, new_json, df_to_tracked_words(df), new_row_idx
+
+def apply_quick_target(new_tgt, row_idx, state_json):
+    if row_idx < 0 or not state_json or state_json == "{}": return gr.update(), state_json, gr.update()
+    df = pd.read_json(io.StringIO(state_json), orient='records')
+    if df.empty or row_idx >= len(df): return gr.update(), state_json, gr.update()
+    tgt_col = "Cible %" if "Cible %" in df.columns else "Target %"
+    old_tgt = str(df.at[row_idx, tgt_col]).replace('%', '')
+    try: old_tgt = float(old_tgt)
+    except: old_tgt = 0.0
+    if new_tgt is None: new_tgt = 0.0
+    if old_tgt == new_tgt: return gr.update(), state_json, gr.update()
+    df.at[row_idx, tgt_col] = new_tgt
+    new_json = df.to_json(orient='records')
+    return df, new_json, df_to_tracked_words(df)
+
+def df_move_up(df, row_idx):
+    if df is None or df.empty or row_idx <= 0 or row_idx >= len(df): return df, row_idx, df_to_tracked_words(df)
+    d = df.to_dict('records')
+    d[row_idx], d[row_idx-1] = d[row_idx-1], d[row_idx]
+    ndf = pd.DataFrame(d)
+    col = "Priorité" if "Priorité" in ndf.columns else "Priority"
+    ndf[col] = range(1, len(ndf)+1)
+    return ndf, row_idx - 1, df_to_tracked_words(ndf)
+
+def df_move_down(df, row_idx):
+    if df is None or df.empty or row_idx < 0 or row_idx >= len(df)-1: return df, row_idx, df_to_tracked_words(df)
+    d = df.to_dict('records')
+    d[row_idx], d[row_idx+1] = d[row_idx+1], d[row_idx]
+    ndf = pd.DataFrame(d)
+    col = "Priorité" if "Priorité" in ndf.columns else "Priority"
+    ndf[col] = range(1, len(ndf)+1)
+    return ndf, row_idx + 1, df_to_tracked_words(ndf)
+
+def df_delete_row(df, row_idx):
+    if df is None or df.empty or row_idx < 0 or row_idx >= len(df): return df, -1, df_to_tracked_words(df)
+    d = df.to_dict('records')
+    d.pop(row_idx)
+    ndf = pd.DataFrame(d) if d else pd.DataFrame(columns=df.columns)
+    if not ndf.empty:
+        col = "Priorité" if "Priorité" in ndf.columns else "Priority"
+        ndf[col] = range(1, len(ndf)+1)
+    return ndf, -1, df_to_tracked_words(ndf)
+
+def handle_df_edit(new_df, old_df):
+    if new_df is None or new_df.empty: return new_df, new_df, df_to_tracked_words(new_df)
+    prio_col = "Priorité" if "Priorité" in new_df.columns else "Priority"
+    if old_df is not None and not old_df.empty and len(new_df) == len(old_df):
+        try:
+            new_series = pd.to_numeric(new_df[prio_col], errors='coerce').fillna(999).astype(int)
+            old_series = pd.to_numeric(old_df[prio_col], errors='coerce').fillna(999).astype(int)
+            diff_mask = new_series != old_series
+            if diff_mask.any():
+                changed_idx = diff_mask.idxmax()
+                new_prio = new_series.iloc[changed_idx]
+                old_prio = old_series.iloc[changed_idx]
+                max_prio = len(new_df)
+                if new_prio < 1: new_prio = 1
+                if new_prio > max_prio: new_prio = max_prio
+                new_df.at[changed_idx, prio_col] = new_prio
+                new_series.iloc[changed_idx] = new_prio
+                conflict_mask = (new_series == new_prio) & (new_series.index != changed_idx)
+                if conflict_mask.any():
+                    conflict_idx = conflict_mask.idxmax()
+                    new_df.at[conflict_idx, prio_col] = old_prio
+        except Exception: pass
+    try:
+        new_df[prio_col] = pd.to_numeric(new_df[prio_col], errors='coerce').fillna(999).astype(int)
+        new_df = new_df.sort_values(by=prio_col).reset_index(drop=True)
+        new_df[prio_col] = range(1, len(new_df) + 1)
+    except: pass
+    return new_df, new_df, df_to_tracked_words(new_df)
+
+def handle_recipe_df_safe(new_df, state_json, current_str):
+    if new_df is None or new_df.empty: return gr.update(), "{}", gr.update()
+    new_json = new_df.to_json(orient='records')
+    if new_json == state_json: return gr.update(), state_json, gr.update()
+    old_df = pd.read_json(io.StringIO(state_json), orient='records') if state_json != "{}" else pd.DataFrame()
+    processed_df, _, new_str = handle_df_edit(new_df, old_df)
+    processed_json = processed_df.to_json(orient='records')
+    str_update = new_str if norm_tracked_words(new_str) != norm_tracked_words(current_str) else gr.update()
+    return processed_df, processed_json, str_update
+
+def handle_stats_df_safe(new_df, state_json, current_str):
+    if new_df is None or new_df.empty: return gr.update(), "{}", gr.update()
+    new_json = new_df.to_json(orient='records')
+    if new_json == state_json: return gr.update(), state_json, gr.update()
+    new_str = df_to_tracked_words(new_df)
+    str_update = new_str if norm_tracked_words(new_str) != norm_tracked_words(current_str) else gr.update()
+    return gr.update(), new_json, str_update
+
+def handle_drag_and_drop(dnd_data, current_df):
+    if not dnd_data or current_df is None or current_df.empty: return current_df, gr.update()
+    try:
+        old_idx, new_idx = map(int, dnd_data.split(','))
+        if old_idx < 0 or old_idx >= len(current_df) or new_idx < 0 or new_idx >= len(current_df): return current_df, gr.update()
+        df_list = current_df.to_dict('records')
+        item = df_list.pop(old_idx)
+        df_list.insert(new_idx, item)
+        new_df = pd.DataFrame(df_list)
+        prio_col = "Priorité" if "Priorité" in new_df.columns else "Priority"
+        new_df[prio_col] = range(1, len(new_df) + 1)
+        return new_df, df_to_tracked_words(new_df)
+    except: return current_df, gr.update()
+
+def load_ai_recipes():
+    if os.path.exists(AI_RECIPES_FILE):
+        with open(AI_RECIPES_FILE, 'r') as f: return json.load(f)
+    return {"Default Flux Style": "Réécris ces tags en une phrase naturelle parfaite pour le modèle Flux : {tags}"}
+
+def save_ai_recipe(name, prompt):
+    if not name: return gr.update()
+    recipes = load_ai_recipes()
+    recipes[name] = prompt
+    with open(AI_RECIPES_FILE, 'w') as f: json.dump(recipes, f)
+    gr.Info("Template IA sauvegardé !")
+    return gr.update(choices=list(recipes.keys()), value=name)
+
+def apply_ai_recipe(name): return load_ai_recipes().get(name, "")
+
+AI_ACTION_DESCRIPTIONS = {
+    "Auto-Taggage / Super OCR (VLM)": "**Vision :** Analyse complète de l'image et extraction du texte.",
+    "Reality Check & Hallucinations (VLM)": "**Vision :** Supprime les tags inexistants dans l'image réelle.",
+    "Concept Isolator (Spécial LoRA)": "**Vision :** Décrit tout SAUF le sujet central.",
+    "Traducteur Visuel (Booru ↔ Phrase Naturelle)": "**Texte :** Convertit des tags bruts en une belle phrase.",
+    "Tag Sorting & Standardisation": "**Texte :** Ordonne l'importance des tags et corrige l'orthographe.",
+    "Traduction Automatique (Vers Anglais)": "**Texte :** Traduit proprement vers l'anglais.",
+    "✨ Prompt Personnalisé (Texte/Vision)": "**Custom :** Utilisez le champ 'Prompt Personnalisé' ci-dessous."
+}
+
+def update_ai_action_desc(action):
+    show_custom = action == "✨ Prompt Personnalisé (Texte/Vision)"
+    desc = AI_ACTION_DESCRIPTIONS.get(action, "")
+    return f"<div class='ai-desc-box'>ℹ️ {desc}</div>", gr.update(visible=show_custom), gr.update(visible=show_custom)
+
+def call_ai_api(prompt, model, image_path, api_backend, api_url, temp, ctx, sys_prompt):
+    api_url = str(api_url).strip()
+    if not api_url.startswith("http"): api_url = "http://" + api_url
+    b64 = None
+    if image_path:
+        with open(image_path, "rb") as f: b64 = base64.b64encode(f.read()).decode("utf-8")
+    if api_backend == "Ollama":
+        if not api_url.endswith("/api/generate") and not api_url.endswith("/api/chat"): api_url = api_url.rstrip("/") + "/api/generate"
+        payload = {"model": model, "prompt": prompt, "stream": False, "options": {"temperature": float(temp), "num_ctx": int(ctx)}}
+        if sys_prompt: payload["system"] = str(sys_prompt).strip()
+        if b64: payload["images"] = [b64]
+        try:
+            response = requests.post(api_url, json=payload, timeout=180)
+            response.raise_for_status()
+            return response.json().get("response", "").strip()
+        except Exception as e: return f"Erreur API Ollama: {e}"
+    else:
+        if api_url.endswith("/"): api_url = api_url[:-1]
+        if not api_url.endswith("/v1/chat/completions"): api_url = api_url + "/v1/chat/completions"
+        messages = []
+        if sys_prompt: messages.append({"role": "system", "content": str(sys_prompt).strip()})
+        if b64: messages.append({"role": "user", "content": [{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}]})
+        else: messages.append({"role": "user", "content": prompt})
+        payload = {"model": model, "messages": messages, "temperature": float(temp), "max_tokens": int(ctx)}
+        try:
+            response = requests.post(api_url, json=payload, timeout=180)
+            response.raise_for_status()
+            return response.json().get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+        except Exception as e: return f"Erreur API OpenAI: {e}"
+
+def process_ai_action(dataset, selected_ids, search_text, action, custom_prompt, injection_mode, use_vision_for_custom, vlm_model, llm_model, api_backend, api_url, temp, ctx, sys_prompt, current_idx, tracked_words, lang):
+    if not dataset: return dataset, dataset, dataset, "Dataset vide.", extract_all_tags(dataset), "", get_highlighted_html("", tracked_words), ""
+    history = copy.deepcopy(dataset)
+    count = 0; errors = []
+    for item in dataset:
+        if selected_ids and item['id'] not in selected_ids: continue
+        current_cap = item['caption']; new_cap = current_cap; res = ""
+        try:
+            if action == "Auto-Taggage / Super OCR (VLM)": res = call_ai_api("Décris cette image en détail (virgules). Ajoute le texte lu sous la forme text: \"le texte\".", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "Reality Check & Hallucinations (VLM)": res = call_ai_api(f"Tags actuels: '{current_cap}'. Ne renvoie QUE les tags réellement présents.", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "Concept Isolator (Spécial LoRA)": res = call_ai_api("Décris l'arrière-plan et le style, NE DÉCRIS PAS le sujet principal.", vlm_model, item['img_path'], api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "Traducteur Visuel (Booru ↔ Phrase Naturelle)": res = call_ai_api(f"Transforme en phrase anglaise fluide pour Flux : {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "Traduction Automatique (Vers Anglais)": res = call_ai_api(f"Translate into English, keep comma format: {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "Tag Sorting & Standardisation": res = call_ai_api(f"Ordonne (Sujet, Vêtements, Fond) et corrige: {current_cap}", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
+            elif action == "✨ Prompt Personnalisé (Texte/Vision)":
+                model_to_use = vlm_model if use_vision_for_custom else llm_model
+                img_path_to_use = item['img_path'] if use_vision_for_custom else None
+                res = call_ai_api(custom_prompt.replace("{tags}", current_cap), model_to_use, img_path_to_use, api_backend, api_url, temp, ctx, sys_prompt)
+            
+            if res.startswith("Erreur API"): errors.append(item['img_name']); gr.Warning(res); continue
+            if injection_mode == "Remplacer tout" or action != "✨ Prompt Personnalisé (Texte/Vision)": new_cap = res
+            elif injection_mode == "Ajouter au début": new_cap = res + ", " + current_cap if current_cap else res
+            elif injection_mode == "Ajouter à la fin": new_cap = current_cap + ", " + res if current_cap else res
+            
+            if new_cap != current_cap: item['caption'] = new_cap; count += 1
+        except: errors.append(item['img_name'])
+    save_all_captions(dataset)
+    msg = f"✅ IA Appliquée ({count} modifiés)."
+    if errors: msg += f" ⚠️ Échecs sur {len(errors)} fichiers."
+    gr.Info(msg)
+    filtered_dataset = [item for item in dataset if search_text.lower() in item['caption'].lower()] if search_text else dataset
+    
+    cap, hl, wc = get_updated_viewer_data(filtered_dataset, current_idx, tracked_words, lang)
+    return dataset, filtered_dataset, history, msg, extract_all_tags(dataset), cap, hl, wc
+
+def analyze_bias(dataset, llm_model, api_backend, api_url, temp, ctx, sys_prompt):
+    if not dataset: return "Aucun dataset."
+    all_caps = " | ".join([it['caption'] for it in dataset[:50]]) 
+    return call_ai_api(f"Tu es un expert en entraînement IA. Échantillon de mon dataset : {all_caps}. Bref rapport des biais potentiels (poses, diversité) et conseils.", llm_model, None, api_backend, api_url, temp, ctx, sys_prompt)
+
+# ==========================================
+# GESTION DYNAMIQUE DU CHANGEMENT DE LANGUE
+# ==========================================
+def change_language(lang, stats_df, config_df, lib_state):
     t = UI_T.get(lang, UI_T.get("FR", {})) 
     m = MSG.get(lang, MSG.get("FR", {}))
     new_stats = stats_df
     new_config = config_df
-    kw = m.get("df_kw", "Mot-clé" if lang == "FR" else "Keyword")
-    tgt = m.get("df_tgt", "Cible %" if lang == "FR" else "Target %")
-    prio = m.get("df_prio", "Priorité" if lang == "FR" else "Priority")
+    kw = m.get("df_kw", "Mot-clé")
+    tgt = m.get("df_tgt", "Cible %")
+    prio = m.get("df_prio", "Priorité")
     if isinstance(stats_df, pd.DataFrame) and not stats_df.empty:
         new_stats = stats_df.rename(columns={
             "Mot-clé": kw, "Keyword": kw,
@@ -1393,66 +1539,160 @@ def change_language(lang, stats_df, config_df):
         })
     lbl_pie = "Graphique (Répartition)" if lang == "FR" else "Chart (Distribution)"
     lbl_bar = "Graphique (Occurrences)" if lang == "FR" else "Chart (Occurrences)"
-    lbl_exp = "Graphique (Export)" if lang == "FR" else "Chart (Export)"
-    shortcuts_text = "🎹 **Actions :** `[←/→]` Naviguer | `[Ctrl+S]` Sauver caption | `[Alt+S]` Suivre/Retirer mot-clé (Stats)<br>🖱️ **Sélection :** `[Ctrl+Clic]` Multi-sélection | `[Maj+Clic]` Plage d'images | `[Ctrl+A]` Tout | `[Alt+C]` Vider" if lang == "FR" else "🎹 **Actions:** `[←/→]` Navigate | `[Ctrl+S]` Save caption | `[Alt+S]` Track/Untrack keyword (Stats)<br>🖱️ **Selection:** `[Ctrl+Click]` Multi-select | `[Shift+Click]` Select range | `[Ctrl+A]` Select All | `[Alt+C]` Clear"
+    
+    m_add = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[0]
+    m_rem = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[1]
+    m_rep = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[2]
 
     return (
-        # Section V2 Originale (57 updates)
-        gr.update(value=t.get("title", "")), gr.update(value=t.get("browse", "")), gr.update(value=t.get("load", "")),
-        gr.update(value=t.get("status_wait", "")), gr.update(value=t.get("recipe_global", "")), gr.update(label=t.get("recipes_dd", "")),
-        gr.update(label=t.get("recipe_name", "")), gr.update(value=t.get("save_recipe", "")), gr.update(placeholder=t.get("tracked_ph", "")),
-        gr.update(value=t.get("gallery_title", "")), gr.update(label=t.get("search", ""), placeholder=t.get("search_ph", "")),
-        gr.update(label=t.get("multi_cb", "")), gr.update(value=t.get("clear_sel", "")), gr.update(label=t.get("cols", "")),
-        gr.update(value=t.get("hide_gal", "")), gr.update(label=t.get("tab_view", "")), gr.update(value=t.get("btn_prev", "")),
-        gr.update(value=t.get("btn_next", "")), gr.update(value=shortcuts_text), gr.update(value=t.get("toggle_stat", "")),
-        gr.update(value=t.get("save_cap", "")), gr.update(label=t.get("tab_batch", "")), gr.update(value=t.get("btn_undo", "")),
-        gr.update(label=t.get("target_rep", "")), gr.update(label=t.get("synonyms", "")), gr.update(value=t.get("btn_rep_syn", "")),
-        gr.update(label=t.get("rep_this", "")), gr.update(label=t.get("rep_that", "")), gr.update(label=t.get("use_regex", "")),
-        gr.update(value=t.get("btn_apply", "")), gr.update(label=t.get("add_text", "")), 
-        gr.update(choices=t.get("add_pos_choices", [""]), value=t.get("add_pos_choices", [""])[0] if t.get("add_pos_choices") else ""),
-        gr.update(value=t.get("btn_add", "")), gr.update(value=t.get("btn_clean_com", "")), gr.update(value=t.get("btn_clean_dup", "")),
-        gr.update(label=t.get("df_preview", "")), gr.update(label=t.get("tab_export", "")), gr.update(value=t.get("exp_desc", "")),
-        gr.update(value=t.get("exp_edit", "")), gr.update(value=new_config, headers=t.get("exp_df_headers", [])), 
-        gr.update(label=t.get("strat", ""), choices=t.get("strat_choices", ["", ""]), value=t.get("strat_choices", ["", ""])[1] if len(t.get("strat_choices", []))>1 else ""),
-        gr.update(label=t.get("max_img", "")), gr.update(label=t.get("dest_folder", ""), placeholder=t.get("dest_ph", "")),
-        gr.update(value=t.get("btn_simul", "")), gr.update(value=t.get("btn_exp", "")), gr.update(value=t.get("res_simul", "")),
-        gr.update(value=t.get("exp_gal", "")), gr.update(label=t.get("tab_stats", "")), gr.update(value=t.get("stat_edit", "")), 
-        gr.update(value=new_stats, headers=t.get("stat_df_headers", [])), gr.update(value=t.get("btn_top20", "")),
-        gr.update(value=t.get("btn_orph", "")), gr.update(label=t.get("txt_orph", "")),
-        gr.update(label=lbl_pie), gr.update(label=lbl_bar), gr.update(label=lbl_exp),
+        gr.update(value=t.get("title", "")),
+        gr.update(label=t.get("guide_title", "")),
+        gr.update(value=t.get("guide_text", "")),
+        gr.update(value=t.get("browse", "")),
+        gr.update(value=t.get("load", "")),
+        gr.update(value=t.get("status_wait", "")),
         
-        # Section V3.0 Pro (50 updates)
-        gr.update(label=t.get("guide_title", "")), gr.update(value=t.get("guide_text", "")),
-        gr.update(label=t.get("tab_prep", "")), gr.update(value=t.get("prep_info", "")), gr.update(value=t.get("dup_title", "")), 
-        gr.update(label=t.get("hash_tol", "")), gr.update(value=t.get("btn_scan_dups", "")), gr.update(label=t.get("dup_dd", "")), 
-        gr.update(value=t.get("btn_del_A", "")), gr.update(value=t.get("btn_del_B", "")), gr.update(value=t.get("rename_title", "")), 
-        gr.update(label=t.get("rename_prefix", "")), gr.update(value=t.get("btn_rename", "")), gr.update(value=t.get("resize_title", "")), 
-        gr.update(label=t.get("prep_size", "")), gr.update(label=t.get("prep_format", "")), gr.update(label=t.get("prep_crop", "")), 
-        gr.update(label=t.get("prep_alpha", "")), gr.update(label=t.get("prep_dest", "")), gr.update(value=t.get("btn_prep", "")),
+        gr.update(value=t.get("recipe_global", "")),
+        gr.update(label=t.get("recipes_dd", "")),
+        gr.update(label=t.get("recipe_name", "")),
+        gr.update(value=t.get("save_recipe", "")),
+        gr.update(placeholder=t.get("tracked_ph", "")),
         
-        gr.update(label=t.get("tab_ai", "")), gr.update(value=t.get("ai_info", "")), gr.update(value=t.get("ai_conf_title", "")), 
-        gr.update(label=t.get("api_backend", "")), gr.update(label=t.get("vlm_model", "")), gr.update(label=t.get("llm_model", "")), 
-        gr.update(label=t.get("ai_adv_acc", "")), gr.update(label=t.get("api_url_input", "")), gr.update(label=t.get("ai_temp", "")), 
-        gr.update(label=t.get("ai_ctx", "")), gr.update(label=t.get("ai_sys", "")), gr.update(value=t.get("ai_act_title", "")), 
-        gr.update(label=t.get("ai_action_dd", "")), gr.update(label=t.get("ai_tpl_dd", "")), gr.update(label=t.get("ai_tpl_name", "")), 
-        gr.update(value=t.get("btn_save_tpl", "")), gr.update(label=t.get("custom_prompt_input", "")), gr.update(label=t.get("use_vision_custom", "")),
-        gr.update(label=t.get("injection_mode", "")), gr.update(value=t.get("btn_run_ai", "")), gr.update(value=t.get("btn_undo_ai", "")), 
+        gr.update(value=t.get("gallery_title", "")),
+        gr.update(label=t.get("search", ""), placeholder=t.get("search_ph", "")),
+        gr.update(label=t.get("multi_cb", "")),
+        gr.update(value=t.get("clear_sel", "")),
+        gr.update(label=t.get("cols", "")),
         
-        gr.update(value=t.get("bias_title", "")), gr.update(value=t.get("btn_bias", "")), gr.update(label=t.get("txt_bias", "")),
-        gr.update(value=t.get("adv_stats_title", "")), gr.update(value=t.get("btn_calc_adv", "")), gr.update(label=t.get("plot_heatmap", "")), 
-        gr.update(label=t.get("plot_bucket", "")), gr.update(value=t.get("anti_title", "")), gr.update(value=t.get("contra_title", ""))
+        gr.update(value=t.get("hide_gal", "")),
+        gr.update(label=t.get("tab_view", "")),
+        gr.update(value=t.get("btn_prev", "")),
+        gr.update(value=t.get("btn_next", "")),
+        gr.update(value=t.get("shortcuts", "")),
+        gr.update(value=t.get("toggle_stat", "")),
+        
+        gr.update(label=t.get("live_trans_label", "")),
+        gr.update(value=t.get("save_cap", "")),
+        
+        gr.update(value=t.get("trans_module_title", "")),
+        gr.update(label=t.get("trans_engine", "")),
+        gr.update(label=t.get("trans_source", "")),
+        gr.update(label=t.get("trans_target", "")),
+        
+        gr.update(value=t.get("btn_translate_entire", "")),
+        gr.update(value=t.get("trans_insert_title", "")),
+        gr.update(placeholder=t.get("trans_input_ph", "")),
+        gr.update(value=t.get("btn_insert_trans", "")),
+        
+        gr.update(label=t.get("tab_batch", "")),
+        gr.update(value=t.get("btn_undo", "")),
+        gr.update(value=t.get("btn_clean_com", "")),
+        gr.update(value=t.get("btn_clean_dup", "")),
+        gr.update(label=t.get("df_preview", "")),
+        
+        gr.update(label=t.get("tab_prep", "")),
+        gr.update(value=t.get("dup_title", "")),
+        gr.update(label=t.get("hash_tol", "")),
+        gr.update(value=t.get("btn_scan_dups", "")),
+        gr.update(label=t.get("dup_dd", "")),
+        gr.update(value=t.get("btn_del_A", "")),
+        gr.update(value=t.get("btn_del_B", "")),
+        
+        gr.update(value=t.get("rename_title", "")),
+        gr.update(label=t.get("rename_prefix", "")),
+        gr.update(value=t.get("btn_rename", "")),
+        gr.update(value=t.get("resize_title", "")),
+        gr.update(label=t.get("prep_size", "")),
+        gr.update(label=t.get("prep_format", "")),
+        gr.update(label=t.get("prep_crop", "")),
+        gr.update(label=t.get("prep_alpha", "")),
+        gr.update(label=t.get("prep_dest", "")),
+        gr.update(value=t.get("btn_prep", "")),
+        
+        gr.update(label=t.get("tab_ai", "")),
+        gr.update(value=t.get("ai_conf_title", "")),
+        gr.update(label=t.get("api_backend", "")),
+        gr.update(label=t.get("vlm_model", "")),
+        gr.update(label=t.get("llm_model", "")),
+        gr.update(label=t.get("ai_adv_acc", "")),
+        gr.update(label=t.get("api_url_input", "")),
+        gr.update(label=t.get("ai_temp", "")),
+        gr.update(label=t.get("ai_ctx", "")),
+        gr.update(label=t.get("ai_sys", "")),
+        
+        gr.update(value=t.get("ai_act_title", "")),
+        gr.update(label=t.get("ai_action_dd", "")),
+        gr.update(label=t.get("ai_tpl_dd", "")),
+        gr.update(label=t.get("ai_tpl_name", "")),
+        gr.update(value=t.get("btn_save_tpl", "")),
+        gr.update(label=t.get("custom_prompt_input", "")),
+        gr.update(label=t.get("use_vision_custom", "")),
+        gr.update(label=t.get("injection_mode", "")),
+        gr.update(value=t.get("btn_run_ai", "")),
+        gr.update(value=t.get("btn_undo_ai", "")),
+        
+        gr.update(value=t.get("bias_title", "")),
+        gr.update(value=t.get("btn_bias", "")),
+        gr.update(label=t.get("txt_bias", "")),
+        
+        gr.update(label=t.get("tab_export", "")),
+        gr.update(value=t.get("exp_edit", "")),
+        gr.update(value=t.get("btn_up", "")),
+        gr.update(value=t.get("btn_down", "")),
+        gr.update(value=t.get("btn_del", "")),
+        gr.update(label=t.get("quick_prio", "")),
+        gr.update(label=t.get("quick_tgt", "")),
+        gr.update(value=new_config, headers=t.get("exp_df_headers", [])),
+        gr.update(label=t.get("strat", ""), choices=t.get("strat_choices", [])),
+        gr.update(label=t.get("max_img", "")),
+        gr.update(label=t.get("dest_folder", ""), placeholder=t.get("dest_ph", "")),
+        gr.update(value=t.get("btn_simul", "")),
+        gr.update(value=t.get("btn_exp", "")),
+        gr.update(label=lbl_pie),
+        gr.update(value=t.get("exp_gal", "")),
+        
+        gr.update(label=t.get("tab_stats", "")),
+        gr.update(value=new_stats, headers=t.get("stat_df_headers", [])),
+        gr.update(value=t.get("btn_civitai", "")),
+        gr.update(value=t.get("btn_top20", "")),
+        gr.update(value=t.get("btn_orph", "")),
+        gr.update(label=t.get("txt_orph", "")),
+        gr.update(label=lbl_pie),
+        gr.update(label=lbl_bar),
+        gr.update(value=t.get("adv_stats_title", "")),
+        gr.update(value=t.get("btn_calc_adv", "")),
+        gr.update(label=t.get("anti_title", "")),
+        gr.update(label=t.get("contra_title", "")),
+        
+        gr.update(value=t.get("lib_title", "")),
+        gr.update(label=t.get("lib_mode", ""), choices=[m_add, m_rem, m_rep], value=m_add),
+        gr.update(label=t.get("lib_target_rem", "")),
+        gr.update(value=t.get("btn_apply_lib_add", "")),
+        gr.update(placeholder=t.get("lib_add_text_ph", "")),
+        gr.update(value=t.get("btn_add_to_lib", "")),
+        gr.update(value=t.get("btn_uncheck_all", "")),
+        gr.update(value=t.get("btn_clear_lib", "")),
+        gr.update(value=t.get("lib_list_title", "")),
+        gr.update(value=render_lib_html(lib_state, lang))
     )
 
-with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
+# ==========================================
+# INTERFACE GRADIO
+# ==========================================
+
+with gr.Blocks(title="IMG Dataset Refiner v4.0 Pro", css=css_code) as app:
     
     dataset_state = gr.State([])
     filtered_state = gr.State([])
     history_state = gr.State([])
-    current_idx_state = gr.State(-1) # CORRECTION : -1 par défaut au lieu de 0
+    current_idx_state = gr.State(-1) 
     selected_indices_state = gr.State([]) 
     config_df_state = gr.State("{}") 
     stats_df_state = gr.State("{}")
     recipe_selected_row = gr.State(-1)
+    
+    # State pour la bibliothèque Custom HTML
+    lib_state = gr.State([])
     
     dup_mapping_state = gr.State({})
     dup_idA = gr.State(-1)
@@ -1466,149 +1706,150 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
     ui_hidden_dnd_btn = gr.Button(elem_id="hidden_dnd_btn")
     ui_hidden_tags_input = gr.Textbox(elem_id="hidden_tags_input")
     
+    # Inputs cachés pour le module Custom Library
+    ui_hidden_lib_toggle_input = gr.Textbox(elem_id="hidden_lib_toggle_input")
+    ui_hidden_lib_toggle_btn = gr.Button(elem_id="hidden_lib_toggle_btn")
+    ui_hidden_lib_delete_input = gr.Textbox(elem_id="hidden_lib_delete_input")
+    ui_hidden_lib_delete_btn = gr.Button(elem_id="hidden_lib_delete_btn")
+    
     t_init = UI_T.get("FR", {})
 
     with gr.Row():
         with gr.Column(scale=2):
             lang_radio = gr.Radio(["FR", "EN"], value="FR", label="Language / Langue")
-            ui_title = gr.Markdown(t_init.get("title", "# 📊 IMG Dataset Refiner v3.0 Pro\n*Gère, visualise, et équilibre ton dataset.*"))
+            ui_title = gr.Markdown(t_init.get("title", ""))
             
-            ui_guide_acc = gr.Accordion(t_init.get("guide_title", "📖 Guide de Démarrage Rapide (Nouveau ? Cliquez ici)"), open=False)
+            ui_guide_acc = gr.Accordion(t_init.get("guide_title", ""), open=False)
             with ui_guide_acc:
-                ui_guide_text = gr.Markdown(t_init.get("guide_text", "**Bienvenue dans IMG Dataset Refiner v3.0 Pro ! Voici comment utiliser cet outil :**\n1. **📂 Charger :** Entrez le chemin de votre dossier (contenant images et `.txt`) et cliquez sur *Charger*.\n2. **🖱️ Sélectionner :** Cliquez sur une image dans la galerie à gauche. Utilisez `[Ctrl+Clic]` ou `[Maj+Clic]` pour en sélectionner plusieurs.\n3. **✍️ Éditer :** Modifiez les tags dans l'onglet *Vue*. **C'est sauvegardé automatiquement !**\n4. **⚡ Actions par lots :** Utilisez l'onglet *Édition Batch* ou *Assistant IA* pour modifier toutes vos images sélectionnées d'un coup."))
+                ui_guide_text = gr.Markdown(t_init.get("guide_text", ""))
             
             with gr.Row():
                 dir_input = gr.Textbox(placeholder="C:\\mon\\dataset", show_label=False, scale=4)
-                ui_browse_btn = gr.Button(t_init.get("browse", "📂 Parcourir"), scale=1)
-            ui_load_btn = gr.Button(t_init.get("load", "🚀 Charger le Dataset"), variant="primary")
-            ui_status_text = gr.Markdown(t_init.get("status_wait", "*En attente de chargement...*"))
+                ui_browse_btn = gr.Button(t_init.get("browse", ""), scale=1)
+            ui_load_btn = gr.Button(t_init.get("load", ""), variant="primary")
+            ui_status_text = gr.Markdown(t_init.get("status_wait", ""))
             
         with gr.Column(scale=3):
-            ui_recipe_global = gr.Markdown(t_init.get("recipe_global", "**Recette Globale (Synchronisée)**"))
+            ui_recipe_global = gr.Markdown(t_init.get("recipe_global", ""))
             with gr.Row():
-                ui_recipes_dropdown = gr.Dropdown(choices=list(load_recipes().keys()), label=t_init.get("recipes_dd", "Charger Recette"), scale=2)
-                ui_recipe_name = gr.Textbox(label=t_init.get("recipe_name", "Nom pour sauver"), scale=1)
-                ui_save_recipe_btn = gr.Button(t_init.get("save_recipe", "💾 Sauver"), scale=1)
-            ui_tracked_words = gr.Textbox(show_label=False, placeholder=t_init.get("tracked_ph", "ex: p0se-s1:50, man:20"), lines=2, elem_id="tracked_words_input")
+                ui_recipes_dropdown = gr.Dropdown(choices=list(load_recipes().keys()), label=t_init.get("recipes_dd", ""), scale=2)
+                ui_recipe_name = gr.Textbox(label=t_init.get("recipe_name", ""), scale=1)
+                ui_save_recipe_btn = gr.Button(t_init.get("save_recipe", ""), scale=1)
+            ui_tracked_words = gr.Textbox(show_label=False, placeholder=t_init.get("tracked_ph", ""), lines=2, elem_id="tracked_words_input")
 
     gr.Markdown("---")
     
     with gr.Row():
         with gr.Column(scale=0, elem_id="left_panel") as left_panel:
-            ui_gallery_title = gr.Markdown(t_init.get("gallery_title", "### 🖼️ Galerie & Sélection"))
-            ui_search_box = gr.Textbox(label=t_init.get("search", "🔍 Filtrer les images"), placeholder=t_init.get("search_ph", "Tapez un mot..."))
-            with gr.Group():
-                ui_multi_select_cb = gr.Checkbox(label=t_init.get("multi_cb", "✅ Mode Sélection Multiple"), value=False, interactive=True, elem_id="multi_cb")
-                ui_clear_sel_btn = gr.Button(t_init.get("clear_sel", "🧹 Effacer la sélection"), elem_id="clear_sel_btn")
-                ui_selection_status = gr.Markdown("**...**")
-            ui_gallery_cols = gr.Slider(minimum=1, maximum=6, step=1, value=2, label=t_init.get("cols", "Colonnes"))
+            ui_gallery_title = gr.Markdown(t_init.get("gallery_title", ""))
+            ui_search_box = gr.Textbox(label=t_init.get("search", ""), placeholder=t_init.get("search_ph", ""))
+            ui_sort_order = gr.Radio(["A-Z", "Z-A"], value="A-Z", label="Trier / Sort")
+            
+            with gr.Row():
+                ui_multi_select_cb = gr.Checkbox(label=t_init.get("multi_cb", ""), value=False, interactive=True, elem_id="multi_cb", scale=2)
+                ui_clear_sel_btn = gr.Button(t_init.get("clear_sel", ""), elem_id="clear_sel_btn", scale=1)
+                
+            ui_selection_status = gr.Markdown("**...**")
+            ui_gallery_cols = gr.Slider(minimum=1, maximum=6, step=1, value=2, label=t_init.get("cols", ""), interactive=True)
             gallery = gr.Gallery(label="Dataset", columns=2, rows=6, height=750, object_fit="contain", allow_preview=False, elem_id="main_gallery")
             
         with gr.Column(scale=1):
-            ui_toggle_panel_btn = gr.Button(t_init.get("hide_gal", "◀ Masquer la Galerie"), elem_id="toggle_gallery_btn", variant="secondary", size="sm")
+            ui_toggle_panel_btn = gr.Button(t_init.get("hide_gal", ""), elem_id="toggle_gallery_btn", variant="secondary", size="sm")
             
             with gr.Tabs():
-                # --- ONGLET 1 : VUE ORIGINALE ---
-                ui_tab_view = gr.Tab(t_init.get("tab_view", "👁️ Visualiseur & Édition"))
+                ui_tab_view = gr.Tab(t_init.get("tab_view", ""))
                 with ui_tab_view:
-                    gr.HTML("<div class='info-box'>💡 <b>Astuce Édition :</b> Cliquez sur une image à gauche pour la voir. Tapez vos mots-clés ci-dessous. Le texte est <b>sauvegardé automatiquement</b> !</div>")
                     with gr.Row():
-                        ui_btn_prev = gr.Button(t_init.get("btn_prev", "⬅️ Précédent"), elem_id="prev_btn")
-                        ui_btn_next = gr.Button(t_init.get("btn_next", "➡️ Suivant"), elem_id="next_btn")
+                        ui_btn_prev = gr.Button(t_init.get("btn_prev", ""), elem_id="prev_btn")
+                        ui_btn_next = gr.Button(t_init.get("btn_next", ""), elem_id="next_btn")
                     ui_viewer_status = gr.Markdown("**...**")
                     with gr.Row():
                         current_img = gr.Image(interactive=False, type="filepath", height=350, elem_id="viewer_area")
                         with gr.Column(elem_id="viewer_area_text"):
                             highlight_preview = gr.HTML()
                             word_counter = gr.HTML("<div style='color:green;'>0</div>")
-                            ui_viewer_shortcuts = gr.Markdown(t_init.get("shortcuts", "🎹 **Actions :** `[←/→]` Naviguer | `[Ctrl+S]` Sauver caption | `[Alt+S]` Suivre mot-clé"))
-                            ui_toggle_tag_btn = gr.Button(t_init.get("toggle_stat", "🪄 Suivre/Retirer sélection (Stats)"), variant="secondary", elem_id="toggle_tag_btn")
+                            ui_viewer_shortcuts = gr.Markdown(t_init.get("shortcuts", ""))
+                            ui_toggle_tag_btn = gr.Button(t_init.get("toggle_stat", ""), variant="secondary", elem_id="toggle_tag_btn")
+                    
                     current_caption = gr.Textbox(show_label=False, lines=4, elem_id="viewer_caption_area")
-                    ui_save_single_btn = gr.Button(t_init.get("save_cap", "💾 Sauvegarder la Caption"), variant="primary", elem_id="save_single_btn")
+                    ui_live_translation_output = gr.Textbox(label=t_init.get("live_trans_label", ""), interactive=False, lines=3, elem_id="live_translation_preview")
+                    
+                    ui_save_single_btn = gr.Button(t_init.get("save_cap", ""), variant="primary", elem_id="save_single_btn")
                     ui_single_save_status = gr.Markdown()
+                    
+                    with gr.Group():
+                        ui_trans_module_title = gr.Markdown(t_init.get("trans_module_title", ""))
+                        with gr.Row():
+                            with gr.Column(scale=2):
+                                ui_trans_engine = gr.Radio(["Google (Online)", "IA Locale (Ollama/LM Studio)"], label=t_init.get("trans_engine", ""), value="Google (Online)")
+                            with gr.Column(scale=1):
+                                ui_trans_source = gr.Dropdown(["auto", "fr", "es", "de", "it", "pt", "ru", "ja", "ko", "zh-CN"], label=t_init.get("trans_source", ""), value="auto")
+                            with gr.Column(scale=1):
+                                ui_trans_target = gr.Dropdown(["fr", "en", "es", "de", "it", "pt", "ru", "ja", "ko", "zh-CN"], label=t_init.get("trans_target", ""), value="fr")
+                        
+                        ui_btn_translate_entire_caption = gr.Button(t_init.get("btn_translate_entire", ""), elem_id="btn_translate_entire")
+                        gr.Markdown("---")
+                        ui_trans_insert_title = gr.Markdown(t_init.get("trans_insert_title", ""))
+                        with gr.Row():
+                            with gr.Column(scale=3):
+                                ui_trans_input = gr.Textbox(show_label=False, placeholder=t_init.get("trans_input_ph", ""), lines=1)
+                            with gr.Column(scale=1):
+                                ui_btn_insert_trans = gr.Button(t_init.get("btn_insert_trans", ""))
 
-                # --- ONGLET 2 : EDITION BATCH ORIGINALE ---
-                ui_tab_batch = gr.Tab(t_init.get("tab_batch", "⚡ Édition en Batch"))
+                ui_tab_batch = gr.Tab(t_init.get("tab_batch", ""))
                 with ui_tab_batch:
-                    gr.HTML("<div class='info-box'>⚠️ <b>Cible :</b> Les actions ci-dessous s'appliqueront <b>uniquement aux images sélectionnées</b> (ou à toutes si aucune n'est sélectionnée).</div>")
-                    ui_btn_undo = gr.Button(t_init.get("btn_undo", "↩️ ANNULER LA DERNIÈRE ACTION"), variant="stop")
+                    ui_btn_undo = gr.Button(t_init.get("btn_undo", ""), variant="stop")
                     ui_batch_status = gr.Markdown()
                     with gr.Row():
                         with gr.Group():
-                            ui_target_rep = gr.Textbox(label=t_init.get("target_rep", "Tag répétitif (ex: 1girl)"))
-                            ui_synonyms = gr.Textbox(label=t_init.get("synonyms", "Synonymes (séparés par des virgules)"))
-                            ui_btn_rep_syn = gr.Button(t_init.get("btn_rep_syn", "Remplacer doublons par synonymes"))
-                        with gr.Group():
-                            ui_old_text = gr.Textbox(label=t_init.get("rep_this", "Remplacer ceci..."))
-                            ui_new_text = gr.Textbox(label=t_init.get("rep_that", "... Par cela"))
-                            ui_use_regex = gr.Checkbox(label=t_init.get("use_regex", "Regex"))
-                            ui_btn_apply = gr.Button(t_init.get("btn_apply", "Appliquer"))
-                    with gr.Row():
-                        with gr.Group():
-                            ui_add_text = gr.Textbox(label=t_init.get("add_text", "Texte à Ajouter"))
-                            ui_add_pos = gr.Radio(t_init.get("add_pos_choices", ["Début", "Fin"]), value=t_init.get("add_pos_choices", ["Début", "Fin"])[0], show_label=False)
-                            ui_btn_add = gr.Button(t_init.get("btn_add", "Ajouter"))
-                        with gr.Group():
-                            ui_btn_clean_com = gr.Button(t_init.get("btn_clean_com", "Nettoyer virgules et espaces"))
-                            ui_btn_clean_dup = gr.Button(t_init.get("btn_clean_dup", "Retirer tags identiques purs"))
-                    ui_preview_table = gr.Dataframe(label=t_init.get("df_preview", "Aperçu des changements"), interactive=False)
+                            ui_btn_clean_com = gr.Button(t_init.get("btn_clean_com", ""))
+                            ui_btn_clean_dup = gr.Button(t_init.get("btn_clean_dup", ""))
+                    ui_preview_table = gr.Dataframe(label=t_init.get("df_preview", ""), interactive=False)
 
-                # --- ONGLET 3 : PRE-TRAITEMENT (PRO) ---
-                ui_tab_prep = gr.Tab(t_init.get("tab_prep", "🖼️ Pré-traitement & Doublons"))
+                ui_tab_prep = gr.Tab(t_init.get("tab_prep", ""))
                 with ui_tab_prep:
-                    ui_prep_info = gr.HTML(t_init.get("prep_info", "<div class='info-box'>ℹ️ <b>Astuce :</b> Avant de tagger vos images, utilisez cet onglet pour standardiser leur résolution ou repérer les images quasi-identiques (Doublons) qui pourraient fausser votre entraînement.</div>"))
                     with gr.Row():
                         with gr.Column(scale=1):
-                            ui_dup_title = gr.Markdown(t_init.get("dup_title", "### 🔍 Traque aux Doublons Visuels"))
-                            ui_hash_tol = gr.Slider(0, 20, 5, step=1, label=t_init.get("hash_tol", "Tolérance (0 = Clone exact, 10+ = Recadrage)"))
-                            btn_scan_dups = gr.Button(t_init.get("btn_scan_dups", "Scanner le dossier"))
-                            
-                            dup_dropdown = gr.Dropdown(label=t_init.get("dup_dd", "Paires Suspectes"), interactive=True)
+                            ui_dup_title = gr.Markdown(t_init.get("dup_title", ""))
+                            ui_hash_tol = gr.Slider(0, 20, 5, step=1, label=t_init.get("hash_tol", ""))
+                            btn_scan_dups = gr.Button(t_init.get("btn_scan_dups", ""))
+                            dup_dropdown = gr.Dropdown(label=t_init.get("dup_dd", ""), interactive=True)
                             with gr.Row():
                                 dup_img_A = gr.Image(label="Image A", interactive=False, height=200)
                                 dup_img_B = gr.Image(label="Image B", interactive=False, height=200)
                             with gr.Row():
-                                btn_del_A = gr.Button(t_init.get("btn_del_A", "🗑️ Supprimer A"), variant="stop")
-                                btn_del_B = gr.Button(t_init.get("btn_del_B", "🗑️ Supprimer B"), variant="stop")
+                                btn_del_A = gr.Button(t_init.get("btn_del_A", ""), variant="stop")
+                                btn_del_B = gr.Button(t_init.get("btn_del_B", ""), variant="stop")
                             dup_status = gr.Markdown()
-                            
                         with gr.Column(scale=1):
-                            ui_rename_title = gr.Markdown(t_init.get("rename_title", "### 🚀 Renommage par lot"))
-                            ui_rename_prefix = gr.Textbox(label=t_init.get("rename_prefix", "Préfixe (ex: mon_concept)"), placeholder="concept")
-                            btn_rename = gr.Button(t_init.get("btn_rename", "Renommer tout le dataset"))
-                            
+                            ui_rename_title = gr.Markdown(t_init.get("rename_title", ""))
+                            ui_rename_prefix = gr.Textbox(label=t_init.get("rename_prefix", ""), placeholder="concept")
+                            btn_rename = gr.Button(t_init.get("btn_rename", ""))
                             gr.Markdown("---")
-                            ui_resize_title = gr.Markdown(t_init.get("resize_title", "### 📐 Redimensionnement & Formatage"))
-                            prep_size = gr.Dropdown(["512", "768", "1024", "1536"], value="1024", label=t_init.get("prep_size", "Résolution Max"))
-                            prep_format = gr.Dropdown(["WebP", "JPEG"], value="WebP", label=t_init.get("prep_format", "Format"))
-                            prep_crop = gr.Dropdown(["Conserver Ratio", "1:1 (Carré Centre)", "Smart Face Crop (OpenCV)"], value="Conserver Ratio", label=t_init.get("prep_crop", "Recadrage"))
-                            prep_alpha = gr.Checkbox(value=True, label=t_init.get("prep_alpha", "Convertir fond transparent en Blanc (Recommandé)"))
-                            prep_dest = gr.Textbox(label=t_init.get("prep_dest", "Dossier de destination (Laissez vide pour dossier auto)"), placeholder="ex: C:\\mon_dataset\\processed")
-                            btn_prep = gr.Button(t_init.get("btn_prep", "Lancer le Traitement"), variant="primary")
+                            ui_resize_title = gr.Markdown(t_init.get("resize_title", ""))
+                            prep_size = gr.Dropdown(["512", "768", "1024", "1536"], value="1024", label=t_init.get("prep_size", ""))
+                            prep_format = gr.Dropdown(["WebP", "JPEG"], value="WebP", label=t_init.get("prep_format", ""))
+                            prep_crop = gr.Dropdown(["Conserver Ratio", "1:1 (Carré Centre)", "Smart Face Crop (OpenCV)"], value="Conserver Ratio", label=t_init.get("prep_crop", ""))
+                            prep_alpha = gr.Checkbox(value=True, label=t_init.get("prep_alpha", ""))
+                            prep_dest = gr.Textbox(label=t_init.get("prep_dest", ""), placeholder="...")
+                            btn_prep = gr.Button(t_init.get("btn_prep", ""), variant="primary")
                             prep_status = gr.Markdown()
 
-                # --- ONGLET 4 : ASSISTANT IA (PRO) ---
-                ui_tab_ai = gr.Tab(t_init.get("tab_ai", "🤖 Assistant IA Local"))
+                ui_tab_ai = gr.Tab(t_init.get("tab_ai", ""))
                 with ui_tab_ai:
-                    ui_ai_info = gr.HTML(t_init.get("ai_info", "<div class='info-box' style='border-color: #f59e0b; background-color: rgba(245, 158, 11, 0.1);'>💡 <b>Vous avez déjà vos fichiers <code>.gguf</code> téléchargés ?</b><br>Pour éviter de télécharger les modèles en double via Ollama, ouvrez simplement vos modèles dans <b>LM Studio</b> ou <b>KoboldCPP</b>, démarrez leur serveur local (souvent port 1234), et choisissez <i>API OpenAI / LM Studio</i> ci-dessous !</div>"))
-                    
                     with gr.Row():
                         with gr.Column(scale=1):
-                            ui_ai_conf_title = gr.Markdown(t_init.get("ai_conf_title", "### ⚙️ Serveur et Modèles Locaux"))
-                            api_backend = gr.Radio(["Ollama", "API OpenAI / LM Studio (GGUF locaux)"], label=t_init.get("api_backend", "Moteur IA (Backend)"), value="Ollama")
-                            vlm_model = gr.Textbox(value="llava", label=t_init.get("vlm_model", "Modèle Vision (ex: llava, qwen2.5-vl, local-model)"))
-                            llm_model = gr.Textbox(value="llama3.1", label=t_init.get("llm_model", "Modèle Texte (ex: llama3.1, local-model)"))
-                            
-                            ui_ai_adv_acc = gr.Accordion(t_init.get("ai_adv_acc", "🛠️ Paramètres Avancés API"), open=False)
-                            with ui_ai_adv_acc:
-                                api_url_input = gr.Textbox(value=DEFAULT_OLLAMA_URL, label=t_init.get("api_url_input", "URL du Serveur Local"), placeholder="http://127.0.0.1:11434")
-                                ai_temp = gr.Slider(minimum=0.0, maximum=2.0, value=0.7, step=0.1, label=t_init.get("ai_temp", "Température (Créativité)"))
-                                ai_ctx = gr.Number(value=4096, label=t_init.get("ai_ctx", "Contexte Max (Tokens)"))
-                                ai_sys = gr.Textbox(label=t_init.get("ai_sys", "System Prompt"), lines=2)
-                        
+                            ui_ai_conf_title = gr.Markdown(t_init.get("ai_conf_title", ""))
+                            api_backend = gr.Radio(["Ollama", "API OpenAI / LM Studio (GGUF locaux)"], label=t_init.get("api_backend", ""), value="Ollama")
+                            vlm_model = gr.Textbox(value="llava", label=t_init.get("vlm_model", ""))
+                            llm_model = gr.Textbox(value="llama3.1", label=t_init.get("llm_model", ""))
+                            with gr.Accordion(t_init.get("ai_adv_acc", ""), open=False) as ui_ai_adv_acc:
+                                api_url_input = gr.Textbox(value=DEFAULT_OLLAMA_URL, label=t_init.get("api_url_input", ""))
+                                ai_temp = gr.Slider(minimum=0.0, maximum=2.0, value=0.7, step=0.1, label=t_init.get("ai_temp", ""))
+                                ai_ctx = gr.Number(value=4096, label=t_init.get("ai_ctx", ""))
+                                ai_sys = gr.Textbox(label=t_init.get("ai_sys", ""), lines=2)
                         with gr.Column(scale=2):
-                            ui_ai_act_title = gr.Markdown(t_init.get("ai_act_title", "### 🚀 Actions sur la sélection"))
-                            default_action = "Auto-Taggage / Super OCR (VLM)"
+                            ui_ai_act_title = gr.Markdown(t_init.get("ai_act_title", ""))
                             ai_action_dropdown = gr.Dropdown([
                                 "Auto-Taggage / Super OCR (VLM)",
                                 "Reality Check & Hallucinations (VLM)",
@@ -1617,143 +1858,190 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
                                 "Tag Sorting & Standardisation",
                                 "Traduction Automatique (Vers Anglais)",
                                 "✨ Prompt Personnalisé (Texte/Vision)"
-                            ], label=t_init.get("ai_action_dd", "Action IA"), value=default_action)
-                            
+                            ], label=t_init.get("ai_action_dd", ""), value="Auto-Taggage / Super OCR (VLM)")
                             ai_action_desc = gr.HTML()
-                            
                             with gr.Group(visible=False) as custom_prompt_group:
                                 with gr.Row():
-                                    ai_template_dd = gr.Dropdown(choices=list(load_ai_recipes().keys()), label=t_init.get("ai_tpl_dd", "📚 Vos Templates"))
-                                    ai_template_name = gr.Textbox(label=t_init.get("ai_tpl_name", "Nom du nouveau template"))
-                                    btn_save_template = gr.Button(t_init.get("btn_save_tpl", "💾 Sauver Template"))
-                                custom_prompt_input = gr.Textbox(label=t_init.get("custom_prompt_input", "Votre Prompt"), placeholder="Utilisez {tags} pour injecter les mots-clés actuels...", lines=3)
-                                use_vision_for_custom = gr.Checkbox(label=t_init.get("use_vision_custom", "Fournir l'image au modèle (Utilisera le VLM)"))
-                            
+                                    ai_template_dd = gr.Dropdown(choices=list(load_ai_recipes().keys()), label=t_init.get("ai_tpl_dd", ""))
+                                    ai_template_name = gr.Textbox(label=t_init.get("ai_tpl_name", ""))
+                                    btn_save_template = gr.Button(t_init.get("btn_save_tpl", ""))
+                                custom_prompt_input = gr.Textbox(label=t_init.get("custom_prompt_input", ""), placeholder="...", lines=3)
+                                use_vision_for_custom = gr.Checkbox(label=t_init.get("use_vision_custom", ""))
                             with gr.Group(visible=False) as injection_group:
-                                injection_mode = gr.Radio(["Remplacer tout", "Ajouter au début", "Ajouter à la fin"], label=t_init.get("injection_mode", "Mode d'injection"), value="Remplacer tout")
-                                
+                                injection_mode = gr.Radio(["Remplacer tout", "Ajouter au début", "Ajouter à la fin"], label=t_init.get("injection_mode", ""), value="Remplacer tout")
                             with gr.Row():
-                                btn_run_ai = gr.Button(t_init.get("btn_run_ai", "✨ Lancer l'IA sur la Sélection"), variant="primary")
-                                btn_undo_ai = gr.Button(t_init.get("btn_undo_ai", "↩️ Annuler (Undo)"), variant="stop")
+                                btn_run_ai = gr.Button(t_init.get("btn_run_ai", ""), variant="primary")
+                                btn_undo_ai = gr.Button(t_init.get("btn_undo_ai", ""), variant="stop")
                             ai_status = gr.Markdown()
-                    
                     gr.Markdown("---")
-                    ui_bias_title = gr.Markdown(t_init.get("bias_title", "### 🤖 Profiling de Dataset par l'IA"))
-                    btn_bias = gr.Button(t_init.get("btn_bias", "Générer le rapport de Biais Sémantique (LLM)"), variant="secondary")
-                    txt_bias = gr.Textbox(label=t_init.get("txt_bias", "Rapport IA"), lines=5, interactive=False)
+                    ui_bias_title = gr.Markdown(t_init.get("bias_title", ""))
+                    btn_bias = gr.Button(t_init.get("btn_bias", ""), variant="secondary")
+                    txt_bias = gr.Textbox(label=t_init.get("txt_bias", ""), lines=5, interactive=False)
 
-                # --- ONGLET 5 : EXPORT ORIGINAL ---
-                ui_tab_export = gr.Tab(t_init.get("tab_export", "📁 Assistant d'Export & Recette"))
+                ui_tab_export = gr.Tab(t_init.get("tab_export", ""))
                 with ui_tab_export:
-                    ui_exp_desc = gr.Markdown(t_init.get("exp_desc", "Configurez ici votre recette..."))
                     with gr.Row():
                         with gr.Column(scale=1):
-                            ui_exp_edit = gr.Markdown(t_init.get("exp_edit", "### ⚙️ Éditeur de Recette..."))
+                            ui_exp_edit = gr.Markdown(t_init.get("exp_edit", ""))
                             with gr.Row():
-                                ui_btn_up = gr.Button("⬆️ Monter (Alt+Haut)", variant="secondary", size="sm", elem_id="btn_move_up")
-                                ui_btn_down = gr.Button("⬇️ Descendre (Alt+Bas)", variant="secondary", size="sm", elem_id="btn_move_down")
-                                ui_btn_del = gr.Button("🗑️ Supprimer", variant="stop", size="sm")
+                                ui_btn_up = gr.Button(t_init.get("btn_up", ""), variant="secondary", size="sm", elem_id="btn_move_up")
+                                ui_btn_down = gr.Button(t_init.get("btn_down", ""), variant="secondary", size="sm", elem_id="btn_move_down")
+                                ui_btn_del = gr.Button(t_init.get("btn_del", ""), variant="stop", size="sm")
                             with gr.Row():
-                                ui_quick_prio = gr.Dropdown(label="N° Priorité", choices=[str(i) for i in range(1, 101)], allow_custom_value=True, scale=1)
-                                ui_quick_target = gr.Number(label="Cible %", scale=1)
-                            ui_export_config_df = gr.Dataframe(headers=t_init.get("exp_df_headers", ["Priorité", "Mot-clé", "Cible %"]), interactive=True, type="pandas", row_count=("dynamic"), column_count=(3, "fixed"))
-                            ui_strategy_radio = gr.Radio(t_init.get("strat_choices", ["", "Filtre Classique"]), value=t_init.get("strat_choices", ["", "Filtre Classique"])[1] if len(t_init.get("strat_choices", [""])) > 1 else "", label=t_init.get("strat", "🤖 Stratégie"))
-                            ui_max_img_input = gr.Number(label=t_init.get("max_img", "Limite d'images (0 = Infini)"), value=0, precision=0)
-                            ui_export_dir = gr.Textbox(label=t_init.get("dest_folder", "Dossier de Destination"), placeholder=t_init.get("dest_ph", "Laisser vide..."))
+                                ui_quick_prio = gr.Dropdown(label=t_init.get("quick_prio", ""), choices=[str(i) for i in range(1, 101)], allow_custom_value=True, scale=1)
+                                ui_quick_target = gr.Number(label=t_init.get("quick_tgt", ""), scale=1)
+                                
+                            ui_export_config_df = gr.Dataframe(headers=t_init.get("exp_df_headers", []), interactive=True, type="pandas", row_count=("dynamic"), column_count=(3, "fixed"))
+                            ui_strategy_radio = gr.Radio(t_init.get("strat_choices", []), value=t_init.get("strat_choices", [""])[0] if t_init.get("strat_choices") else "", label=t_init.get("strat", ""))
+                            ui_max_img_input = gr.Number(label=t_init.get("max_img", ""), value=0, precision=0)
+                            ui_export_dir = gr.Textbox(label=t_init.get("dest_folder", ""), placeholder=t_init.get("dest_ph", ""))
                             with gr.Row():
-                                ui_btn_simul = gr.Button(t_init.get("btn_simul", "🔍 Simuler"), variant="secondary")
-                                ui_btn_exp = gr.Button(t_init.get("btn_exp", "🚀 Exporter le Dataset"), variant="primary")
+                                ui_btn_simul = gr.Button(t_init.get("btn_simul", ""), variant="secondary")
+                                ui_btn_exp = gr.Button(t_init.get("btn_exp", ""), variant="primary")
                         with gr.Column(scale=1):
-                            ui_res_simul = gr.Markdown(t_init.get("res_simul", "### 📊 Résultat de la Simulation"))
                             ui_export_status = gr.Markdown()
-                            export_pie = gr.Plot(label="Graphique (Export)")
-                    ui_exp_gal = gr.Markdown(t_init.get("exp_gal", "### 🖼️ Miniature du Dataset Final"))
+                            export_pie = gr.Plot(label=t_init.get("overall_dist", ""))
+                    ui_exp_gal = gr.Markdown(t_init.get("exp_gal", ""))
                     export_gallery = gr.Gallery(columns=8, rows=2, height=250, object_fit="contain", allow_preview=False)
 
-                # --- ONGLET 6 : STATS ORIGINALES + ANALYTIQUES PRO ---
-                ui_tab_stats = gr.Tab(t_init.get("tab_stats", "📈 Statistiques Générales"))
+                ui_tab_stats = gr.Tab(t_init.get("tab_stats", ""))
                 with ui_tab_stats:
                     ui_stats_status = gr.Markdown()
                     with gr.Row():
                         with gr.Column(scale=1):
-                            ui_stat_edit = gr.Markdown(t_init.get("stat_edit", "### 📊 Données (Calcul Instantané)..."))
                             ui_stats_table = gr.Dataframe(headers=t_init.get("stat_df_headers", []), interactive=True, type="pandas", row_count=("dynamic"))
-                            ui_btn_civitai = gr.Button("📋 Générer tableau format CivitAI/Markdown", variant="secondary")
-                            ui_civitai_output = gr.Textbox(label="Format CivitAI", interactive=False, lines=5)
+                            ui_btn_civitai = gr.Button(t_init.get("btn_civitai", ""), variant="secondary")
+                            ui_civitai_output = gr.Textbox(label="Format", interactive=False, lines=5)
                             with gr.Row():
-                                ui_btn_top20 = gr.Button(t_init.get("btn_top20", "🪄 Remplir avec le Top 20"))
-                                ui_btn_orph = gr.Button(t_init.get("btn_orph", "🕵️ Tags Orphelins"))
-                            ui_txt_orph = gr.Textbox(label=t_init.get("txt_orph", "Orphelins"), lines=4)
-                            
+                                ui_btn_top20 = gr.Button(t_init.get("btn_top20", ""))
+                                ui_btn_orph = gr.Button(t_init.get("btn_orph", ""))
+                            ui_txt_orph = gr.Textbox(label=t_init.get("txt_orph", ""), lines=4)
                         with gr.Column(scale=2):
                             pie_chart = gr.Plot(label="Graphique (Répartition)")
                             bar_chart = gr.Plot(label="Graphique (Occurrences)")
                             gr.Markdown("---")
-                            ui_adv_stats_title = gr.Markdown(t_init.get("adv_stats_title", "### 🧬 Analytiques Avancées (v3.0 Pro)"))
-                            btn_calc_adv = gr.Button(t_init.get("btn_calc_adv", "Générer/Rafraîchir les Audits de Co-occurrence"), variant="primary")
+                            ui_adv_stats_title = gr.Markdown(t_init.get("adv_stats_title", ""))
+                            btn_calc_adv = gr.Button(t_init.get("btn_calc_adv", ""), variant="primary")
                             with gr.Row():
-                                plot_heatmap = gr.Plot(label="Matrice de Co-occurrence")
+                                plot_heatmap = gr.Plot(label="Matrice")
                                 plot_bucket = gr.Plot(label="Résolutions")
                             with gr.Row():
                                 with gr.Column():
-                                    ui_anti_title = gr.Markdown(t_init.get("anti_title", "### 🛡️ Matrice d'Exclusion (Anti-Heatmap)"))
-                                    txt_anti = gr.Textbox(show_label=False, lines=6, interactive=False)
+                                    txt_anti = gr.Textbox(label=t_init.get("anti_title", ""), lines=6, interactive=False)
                                 with gr.Column():
-                                    ui_contra_title = gr.Markdown(t_init.get("contra_title", "### ⚠️ Chasseur de Contradictions Logiques"))
-                                    txt_contra = gr.Textbox(show_label=False, lines=6, interactive=False)
+                                    txt_contra = gr.Textbox(label=t_init.get("contra_title", ""), lines=6, interactive=False)
+
+        with gr.Column(scale=0, elem_id="right_panel"):
+            ui_lib_title = gr.HTML(t_init.get("lib_title", ""))
+            
+            ui_lib_mode = gr.Radio(t_init.get("lib_mode_choices", []), label=t_init.get("lib_mode", ""), value=t_init.get("lib_mode_choices", [""])[0] if t_init.get("lib_mode_choices") else "")
+            ui_lib_target = gr.Textbox(label=t_init.get("lib_target_rem", ""), placeholder="Ex: 1girl", visible=False)
+            
+            ui_btn_apply_lib = gr.Button(t_init.get("btn_apply_lib_add", ""), variant="primary")
+            
+            gr.Markdown("---")
+            ui_lib_add_text = gr.Textbox(show_label=False, lines=3, placeholder=t_init.get("lib_add_text_ph", ""))
+            ui_btn_add_to_lib = gr.Button(t_init.get("btn_add_to_lib", ""), size="sm")
+            
+            with gr.Row():
+                ui_btn_uncheck_all = gr.Button(t_init.get("btn_uncheck_all", ""), size="sm")
+                ui_btn_clear_lib = gr.Button(t_init.get("btn_clear_lib", ""), variant="stop", size="sm")
+            
+            gr.Markdown("---")
+            ui_lib_list_title = gr.Markdown(t_init.get("lib_list_title", ""))
+            
+            ui_lib_html = gr.HTML(render_lib_html([], "FR"))
 
 # ==========================================
-# CÂBLAGE DES ÉVÉNEMENTS (Version Définitive)
+# CÂBLAGE DES ÉVÉNEMENTS
 # ==========================================
 
-    def auto_switch_api_url(backend):
-        if backend == "Ollama": return "http://127.0.0.1:11434"
-        else: return "http://127.0.0.1:1234"
-        
-    api_backend.change(fn=auto_switch_api_url, inputs=[api_backend], outputs=[api_url_input])
+    lang_radio.change(
+        fn=change_language, 
+        inputs=[lang_radio, ui_stats_table, ui_export_config_df, lib_state],
+        outputs=[
+            ui_title, ui_guide_acc, ui_guide_text, ui_browse_btn, ui_load_btn, ui_status_text,
+            ui_recipe_global, ui_recipes_dropdown, ui_recipe_name, ui_save_recipe_btn, ui_tracked_words,
+            ui_gallery_title, ui_search_box, ui_multi_select_cb, ui_clear_sel_btn, ui_gallery_cols,
+            ui_toggle_panel_btn, ui_tab_view, ui_btn_prev, ui_btn_next, ui_viewer_shortcuts, ui_toggle_tag_btn,
+            ui_live_translation_output, ui_save_single_btn,
+            ui_trans_module_title, ui_trans_engine, ui_trans_source, ui_trans_target,
+            ui_btn_translate_entire_caption, ui_trans_insert_title, ui_trans_input, ui_btn_insert_trans,
+            ui_tab_batch, ui_btn_undo, ui_btn_clean_com, ui_btn_clean_dup, ui_preview_table,
+            ui_tab_prep, ui_dup_title, ui_hash_tol, btn_scan_dups, dup_dropdown, btn_del_A, btn_del_B,
+            ui_rename_title, ui_rename_prefix, btn_rename, ui_resize_title, prep_size, prep_format, prep_crop, prep_alpha, prep_dest, btn_prep,
+            ui_tab_ai, ui_ai_conf_title, api_backend, vlm_model, llm_model, ui_ai_adv_acc, api_url_input, ai_temp, ai_ctx, ai_sys,
+            ui_ai_act_title, ai_action_dropdown, ai_template_dd, ai_template_name, btn_save_template, custom_prompt_input, use_vision_for_custom, injection_mode, btn_run_ai, btn_undo_ai,
+            ui_bias_title, btn_bias, txt_bias,
+            ui_tab_export, ui_exp_edit, ui_btn_up, ui_btn_down, ui_btn_del, ui_quick_prio, ui_quick_target, ui_export_config_df, ui_strategy_radio, ui_max_img_input, ui_export_dir, ui_btn_simul, ui_btn_exp, export_pie, ui_exp_gal,
+            ui_tab_stats, ui_stats_table, ui_btn_civitai, ui_btn_top20, ui_btn_orph, ui_txt_orph, pie_chart, bar_chart, ui_adv_stats_title, btn_calc_adv, txt_anti, txt_contra,
+            ui_lib_title, ui_lib_mode, ui_lib_target, ui_btn_apply_lib, ui_lib_add_text, ui_btn_add_to_lib, ui_btn_uncheck_all, ui_btn_clear_lib, ui_lib_list_title, ui_lib_html
+        ]
+    )
 
-    ai_action_dropdown.change(fn=update_ai_action_desc, inputs=[ai_action_dropdown], outputs=[ai_action_desc, custom_prompt_group, injection_group])
+    def update_lib_ui(mode, lang):
+        t = UI_T.get(lang, UI_T.get("FR", {}))
+        m_add = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[0]
+        m_rem = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[1]
+        m_rep = t.get("lib_mode_choices", ["Ajouter", "Retirer", "Remplacer"])[2]
 
-    js_toggle = """function() {
-        const panel = document.getElementById('left_panel'); const btn = document.getElementById('toggle_gallery_btn');
-        if (panel.classList.contains('collapsed')) { panel.classList.remove('collapsed'); btn.innerText = "◀"; } 
-        else { panel.classList.add('collapsed'); btn.innerText = "▶"; }
-        return [];
-    }"""
+        if mode == m_add:
+            return gr.update(visible=False), gr.update(value=t.get("btn_apply_lib_add", ""))
+        elif mode == m_rem:
+            return gr.update(visible=True, label=t.get("lib_target_rem", "")), gr.update(value=t.get("btn_apply_lib_rem", ""))
+        else:
+            return gr.update(visible=True, label=t.get("lib_target_rep", "")), gr.update(value=t.get("btn_apply_lib_rep", ""))
+
+    ui_lib_mode.change(fn=update_lib_ui, inputs=[ui_lib_mode, lang_radio], outputs=[ui_lib_target, ui_btn_apply_lib])
+
+    ui_multi_select_cb.change(fn=lambda x: x, inputs=[ui_multi_select_cb], outputs=[])
+    js_toggle = "function() { const p = document.getElementById('left_panel'); const b = document.getElementById('toggle_gallery_btn'); if (p.classList.contains('collapsed')) { p.classList.remove('collapsed'); b.innerText = '◀'; } else { p.classList.add('collapsed'); b.innerText = '▶'; } return []; }"
     ui_toggle_panel_btn.click(fn=None, js=js_toggle)
     ui_browse_btn.click(fn=browse_folder, inputs=[], outputs=[dir_input])
-    ui_gallery_cols.change(fn=lambda x: gr.update(columns=x), inputs=[ui_gallery_cols], outputs=[gallery])
+    ui_gallery_cols.change(fn=lambda x: gr.update(columns=int(x)), inputs=[ui_gallery_cols], outputs=[gallery])
 
-    # Core V2 Navigation Bindings
-    # CORRECTION : Ajout de current_idx_state aux outputs de load_dataset
-    ui_load_btn.click(
-        fn=load_dataset, inputs=[dir_input, lang_radio], 
-        outputs=[dataset_state, filtered_state, history_state, ui_status_text, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, ui_hidden_tags_input, current_idx_state]
-    )
-    # CORRECTION : Ajout de current_idx_state aux outputs de filter_gallery
-    ui_search_box.change(fn=filter_gallery, inputs=[dataset_state, ui_search_box, lang_radio], outputs=[filtered_state, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, current_idx_state])
+    ui_load_btn.click(fn=load_dataset, inputs=[dir_input, ui_sort_order, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_status_text, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, ui_hidden_tags_input, current_idx_state])
+    ui_search_box.change(fn=filter_gallery, inputs=[dataset_state, ui_search_box, ui_sort_order, lang_radio], outputs=[filtered_state, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, current_idx_state])
+    ui_sort_order.change(fn=filter_gallery, inputs=[dataset_state, ui_search_box, ui_sort_order, lang_radio], outputs=[filtered_state, gallery, selected_indices_state, ui_selection_status, ui_hidden_sync_input, current_idx_state])
     
-    ui_hidden_sync_btn.click(
-        fn=handle_sync, inputs=[ui_hidden_sync_input, dataset_state, filtered_state, current_idx_state, current_caption, ui_tracked_words, lang_radio], 
-        outputs=[dataset_state, filtered_state, selected_indices_state, ui_selection_status, current_img, highlight_preview, current_caption, word_counter, current_idx_state, ui_viewer_status, ui_hidden_tags_input]
-    )
-    
+    ui_hidden_sync_btn.click(fn=handle_sync, inputs=[ui_hidden_sync_input, dataset_state, filtered_state, current_idx_state, current_caption, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, selected_indices_state, ui_selection_status, current_img, highlight_preview, current_caption, word_counter, current_idx_state, ui_viewer_status, ui_hidden_tags_input])
     ui_btn_prev.click(fn=nav_prev, inputs=[dataset_state, filtered_state, current_idx_state, current_caption, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, current_img, highlight_preview, current_caption, word_counter, current_idx_state, ui_viewer_status])
     ui_btn_next.click(fn=nav_next, inputs=[dataset_state, filtered_state, current_idx_state, current_caption, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, current_img, highlight_preview, current_caption, word_counter, current_idx_state, ui_viewer_status])
     ui_save_single_btn.click(fn=save_single_caption, inputs=[dataset_state, filtered_state, current_idx_state, current_caption, lang_radio], outputs=[dataset_state, filtered_state, ui_single_save_status])
     ui_clear_sel_btn.click(fn=clear_selection, inputs=[lang_radio], outputs=[selected_indices_state, ui_selection_status, ui_hidden_sync_input])
 
-    # Stats Live V2
+    current_caption.change(fn=do_live_translation, inputs=[current_caption, ui_trans_engine, ui_trans_target, api_backend, api_url_input, llm_model, lang_radio], outputs=[ui_live_translation_output], show_progress="hidden")
+    
+    ui_btn_translate_entire_caption.click(
+        fn=translate_entire_caption_action, 
+        inputs=[dataset_state, filtered_state, current_idx_state, current_caption, ui_trans_engine, ui_trans_source, api_backend, api_url_input, llm_model, ui_tracked_words, lang_radio], 
+        outputs=[dataset_state, filtered_state, current_caption, highlight_preview, word_counter, ui_single_save_status]
+    )
+    ui_btn_insert_trans.click(fn=trans_insert, inputs=[ui_trans_input, current_caption, ui_trans_engine, ui_trans_source, api_backend, api_url_input, llm_model, lang_radio], outputs=[current_caption]).success(fn=lambda: "", outputs=[ui_trans_input])
+
+    js_confirm_batch = "(...args) => { if (!confirm('⚠️ Appliquer cette modification en masse sur la sélection ? / Apply this mass modification to the selection?')) throw new Error('Annulé.'); return args; }"
+    js_confirm_undo = "(...args) => { if (!confirm('⚠️ Annuler la dernière action ? / Undo the last action?')) throw new Error('Annulé.'); return args; }"
+    
+    ui_btn_add_to_lib.click(fn=add_to_lib_html, inputs=[ui_lib_add_text, lib_state, lang_radio], outputs=[ui_lib_html, lib_state, ui_lib_add_text])
+    ui_hidden_lib_toggle_btn.click(fn=toggle_lib_item, inputs=[ui_hidden_lib_toggle_input, lib_state, lang_radio], outputs=[ui_lib_html, lib_state])
+    ui_hidden_lib_delete_btn.click(fn=delete_lib_item, inputs=[ui_hidden_lib_delete_input, lib_state, lang_radio], outputs=[ui_lib_html, lib_state])
+    ui_btn_uncheck_all.click(fn=uncheck_all_lib, inputs=[lib_state, lang_radio], outputs=[ui_lib_html, lib_state])
+    ui_btn_clear_lib.click(fn=clear_lib, inputs=[lang_radio], outputs=[ui_lib_html, lib_state])
+    
+    ui_btn_apply_lib.click(fn=batch_library_cb, js=js_confirm_batch, inputs=[dataset_state, lib_state, ui_lib_mode, ui_lib_target, selected_indices_state, ui_search_box, current_idx_state, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table, current_caption, highlight_preview, word_counter, gallery])
+
     js_get_sel = "function(tracker, dummy) { let sel = window.getSelection().toString().trim(); if(!sel) { let ae = document.activeElement; if(ae && (ae.tagName === 'TEXTAREA' || ae.tagName === 'INPUT')) sel = ae.value.substring(ae.selectionStart, ae.selectionEnd).trim(); } return [tracker, sel || \"\"]; }"
     ui_hidden_calc_btn.click(fn=analyze_dataset, inputs=[dataset_state, ui_tracked_words, lang_radio], outputs=[pie_chart, bar_chart, ui_stats_table, stats_df_state, ui_export_config_df, config_df_state, ui_stats_status])
     ui_tracked_words.change(fn=update_viewer, inputs=[filtered_state, current_idx_state, ui_tracked_words, lang_radio], outputs=[current_img, highlight_preview, current_caption, word_counter, current_idx_state, ui_viewer_status])
     ui_toggle_tag_btn.click(fn=toggle_tracked_word, inputs=[ui_tracked_words, dummy_selection], outputs=[ui_tracked_words], js=js_get_sel).success(fn=None, js="function(){ setTimeout(()=>document.getElementById('hidden_calc_btn')?.click(), 100); }")
     current_caption.change(fn=update_word_count, inputs=[current_caption, lang_radio], outputs=[word_counter])
-    
-    # Tableaux & Recettes
     ui_recipes_dropdown.change(fn=apply_recipe, inputs=[ui_recipes_dropdown], outputs=[ui_tracked_words])
     ui_save_recipe_btn.click(fn=save_recipe, inputs=[ui_recipe_name, ui_tracked_words], outputs=[ui_recipes_dropdown, ui_status_text])
-    
+
+    ui_btn_undo.click(fn=undo_last_action, js=js_confirm_undo, inputs=[dataset_state, history_state, current_idx_state, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, ui_batch_status, current_caption, highlight_preview, word_counter])
+    ui_btn_clean_com.click(fn=batch_clean_commas, js=js_confirm_batch, inputs=[dataset_state, selected_indices_state, ui_search_box, current_idx_state, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table, current_caption, highlight_preview, word_counter])
+    ui_btn_clean_dup.click(fn=batch_remove_duplicates, js=js_confirm_batch, inputs=[dataset_state, selected_indices_state, ui_search_box, current_idx_state, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table, current_caption, highlight_preview, word_counter])
+
     ui_export_config_df.select(fn=get_row_index, inputs=[config_df_state], outputs=[recipe_selected_row, ui_quick_prio, ui_quick_target])
     ui_quick_prio.change(fn=apply_quick_prio, inputs=[ui_quick_prio, recipe_selected_row, config_df_state], outputs=[ui_export_config_df, config_df_state, ui_tracked_words, recipe_selected_row])
     ui_quick_target.change(fn=apply_quick_target, inputs=[ui_quick_target, recipe_selected_row, config_df_state], outputs=[ui_export_config_df, config_df_state, ui_tracked_words])
@@ -1762,26 +2050,15 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
     ui_btn_del.click(fn=df_delete_row, inputs=[ui_export_config_df, recipe_selected_row], outputs=[ui_export_config_df, recipe_selected_row, ui_tracked_words])
     ui_hidden_dnd_btn.click(fn=handle_drag_and_drop, inputs=[ui_hidden_dnd_input, ui_export_config_df], outputs=[ui_export_config_df, ui_tracked_words])
     ui_export_config_df.change(fn=handle_recipe_df_safe, inputs=[ui_export_config_df, config_df_state, ui_tracked_words], outputs=[ui_export_config_df, config_df_state, ui_tracked_words])
-    
+
+    ui_btn_civitai.click(fn=generate_civitai_format, inputs=[ui_stats_table], outputs=[ui_civitai_output])
     ui_btn_top20.click(fn=auto_fill_top_tags, inputs=[dataset_state], outputs=[ui_tracked_words]).success(fn=None, js="function(){ setTimeout(()=>document.getElementById('hidden_calc_btn')?.click(), 100); }")
     ui_btn_orph.click(fn=find_orphans, inputs=[dataset_state, lang_radio], outputs=[ui_txt_orph])
-    ui_btn_civitai.click(fn=generate_civitai_format, inputs=[ui_stats_table], outputs=[ui_civitai_output])
     ui_stats_table.change(fn=handle_stats_df_safe, inputs=[ui_stats_table, stats_df_state, ui_tracked_words], outputs=[ui_stats_table, stats_df_state, ui_tracked_words]).success(fn=None, js="function(){ setTimeout(()=>document.getElementById('hidden_calc_btn')?.click(), 100); }")
+    btn_calc_adv.click(fn=update_advanced_stats, inputs=[dataset_state], outputs=[plot_heatmap, plot_bucket, txt_anti, txt_contra])
 
-    # Batch Original
-    js_confirm = "function() { if (!confirm('⚠️ Appliquer cette modification en masse ? / Apply this mass modification?')) throw new Error('Annulé.'); }"
-    ui_btn_undo.click(fn=None, js="function(){ if(!confirm('⚠️ Annuler ?')) throw new Error('Annulé'); }").success(fn=undo_last_action, inputs=[dataset_state, history_state, lang_radio], outputs=[dataset_state, filtered_state, ui_batch_status])
-    ui_btn_add.click(fn=None, js=js_confirm).success(fn=batch_add, inputs=[dataset_state, ui_add_text, ui_add_pos, selected_indices_state, ui_search_box, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table])
-    ui_btn_apply.click(fn=None, js=js_confirm).success(fn=batch_replace, inputs=[dataset_state, ui_old_text, ui_new_text, ui_use_regex, selected_indices_state, ui_search_box, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table])
-    ui_btn_clean_com.click(fn=None, js=js_confirm).success(fn=batch_clean_commas, inputs=[dataset_state, selected_indices_state, ui_search_box, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table])
-    ui_btn_clean_dup.click(fn=None, js=js_confirm).success(fn=batch_remove_duplicates, inputs=[dataset_state, selected_indices_state, ui_search_box, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table])
-    ui_btn_rep_syn.click(fn=None, js=js_confirm).success(fn=batch_synonyms, inputs=[dataset_state, ui_target_rep, ui_synonyms, selected_indices_state, ui_search_box, lang_radio], outputs=[dataset_state, filtered_state, history_state, ui_batch_status, ui_preview_table])
-
-    # Export
     ui_btn_simul.click(fn=simulate_and_export, inputs=[dataset_state, ui_export_dir, ui_export_config_df, gr.State(True), selected_indices_state, ui_strategy_radio, ui_max_img_input, lang_radio], outputs=[ui_export_status, export_gallery, export_pie, bar_chart])
     ui_btn_exp.click(fn=simulate_and_export, inputs=[dataset_state, ui_export_dir, ui_export_config_df, gr.State(False), selected_indices_state, ui_strategy_radio, ui_max_img_input, lang_radio], outputs=[ui_export_status, export_gallery, export_pie, bar_chart])
-
-    # --- PRO: Pré-traitement & Doublons ---
     btn_scan_dups.click(fn=scan_duplicates_advanced, inputs=[dataset_state, ui_hash_tol], outputs=[dup_dropdown, dup_mapping_state])
     dup_dropdown.change(fn=load_duplicate_pair, inputs=[dup_dropdown, dup_mapping_state], outputs=[dup_img_A, dup_img_B, dup_idA, dup_idB])
     btn_del_A.click(fn=delete_duplicate, inputs=[dataset_state, filtered_state, dup_idA, dup_dropdown, dup_mapping_state], outputs=[dataset_state, filtered_state, dup_dropdown, dup_mapping_state, dup_status])
@@ -1789,40 +2066,12 @@ with gr.Blocks(title="IMG Dataset Refiner v3.0 Pro", css=css_code) as app:
     btn_rename.click(fn=batch_rename_dataset, inputs=[dataset_state, ui_rename_prefix], outputs=[dataset_state, prep_status])
     btn_prep.click(fn=batch_process_images, inputs=[dataset_state, prep_dest, prep_size, prep_format, prep_crop, prep_alpha], outputs=[prep_status])
 
-    # --- PRO: IA & Paramètres ---
+    ai_action_dropdown.change(fn=update_ai_action_desc, inputs=[ai_action_dropdown], outputs=[ai_action_desc, custom_prompt_group, injection_group])
+    api_backend.change(fn=lambda x: "http://127.0.0.1:11434" if x == "Ollama" else "http://127.0.0.1:1234", inputs=[api_backend], outputs=[api_url_input])
     ai_template_dd.change(fn=apply_ai_recipe, inputs=[ai_template_dd], outputs=[custom_prompt_input])
     btn_save_template.click(fn=save_ai_recipe, inputs=[ai_template_name, custom_prompt_input], outputs=[ai_template_dd])
-    btn_run_ai.click(
-        fn=process_ai_action, 
-        inputs=[dataset_state, selected_indices_state, ui_search_box, ai_action_dropdown, custom_prompt_input, injection_mode, use_vision_for_custom, vlm_model, llm_model, api_backend, api_url_input, ai_temp, ai_ctx, ai_sys, lang_radio],
-        outputs=[dataset_state, filtered_state, history_state, ai_status, ui_hidden_tags_input]
-    )
-    btn_undo_ai.click(fn=None, js="function(){ if(!confirm('⚠️ Annuler la dernière action IA ?')) throw new Error('Annulé'); }").success(fn=undo_last_action, inputs=[dataset_state, history_state, lang_radio], outputs=[dataset_state, filtered_state, ai_status])
+    btn_run_ai.click(fn=process_ai_action, inputs=[dataset_state, selected_indices_state, ui_search_box, ai_action_dropdown, custom_prompt_input, injection_mode, use_vision_for_custom, vlm_model, llm_model, api_backend, api_url_input, ai_temp, ai_ctx, ai_sys, current_idx_state, ui_tracked_words, lang_radio], outputs=[dataset_state, filtered_state, history_state, ai_status, ui_hidden_tags_input, current_caption, highlight_preview, word_counter])
     btn_bias.click(fn=analyze_bias, inputs=[dataset_state, llm_model, api_backend, api_url_input, ai_temp, ai_ctx, ai_sys], outputs=[txt_bias])
-
-    # --- PRO: Stats Avancées ---
-    btn_calc_adv.click(fn=update_advanced_stats, inputs=[dataset_state], outputs=[plot_heatmap, plot_bucket, txt_anti, txt_contra])
-
-    # Changement de langue dynamique
-    lang_radio.change(
-        fn=change_language, inputs=[lang_radio, ui_stats_table, ui_export_config_df],
-        outputs=[
-            ui_title, ui_browse_btn, ui_load_btn, ui_status_text, ui_recipe_global, ui_recipes_dropdown, ui_recipe_name, ui_save_recipe_btn, ui_tracked_words,
-            ui_gallery_title, ui_search_box, ui_multi_select_cb, ui_clear_sel_btn, ui_gallery_cols, ui_toggle_panel_btn, ui_tab_view, ui_btn_prev, ui_btn_next,
-            ui_viewer_shortcuts, ui_toggle_tag_btn, ui_save_single_btn, ui_tab_batch, ui_btn_undo, ui_target_rep, ui_synonyms, ui_btn_rep_syn,
-            ui_old_text, ui_new_text, ui_use_regex, ui_btn_apply, ui_add_text, ui_add_pos, ui_btn_add, ui_btn_clean_com, ui_btn_clean_dup, ui_preview_table,
-            ui_tab_export, ui_exp_desc, ui_exp_edit, ui_export_config_df, ui_strategy_radio, ui_max_img_input, ui_export_dir, ui_btn_simul, ui_btn_exp, ui_res_simul,
-            ui_exp_gal, ui_tab_stats, ui_stat_edit, ui_stats_table, ui_btn_top20, ui_btn_orph, ui_txt_orph, pie_chart, bar_chart, export_pie,
-            # Nouveaux champs Pro
-            ui_guide_acc, ui_guide_text,
-            ui_tab_prep, ui_prep_info, ui_dup_title, ui_hash_tol, btn_scan_dups, dup_dropdown, btn_del_A, btn_del_B,
-            ui_rename_title, ui_rename_prefix, btn_rename, ui_resize_title, prep_size, prep_format, prep_crop, prep_alpha, prep_dest, btn_prep,
-            ui_tab_ai, ui_ai_info, ui_ai_conf_title, api_backend, vlm_model, llm_model, ui_ai_adv_acc, api_url_input, ai_temp, ai_ctx, ai_sys,
-            ui_ai_act_title, ai_action_dropdown, ai_template_dd, ai_template_name, btn_save_template, custom_prompt_input, use_vision_for_custom,
-            injection_mode, btn_run_ai, btn_undo_ai, ui_bias_title, btn_bias, txt_bias,
-            ui_adv_stats_title, btn_calc_adv, plot_heatmap, plot_bucket, ui_anti_title, ui_contra_title
-        ]
-    )
 
     app.load(fn=lambda: None, inputs=None, outputs=None, js=custom_js)
 
@@ -1830,5 +2079,4 @@ if __name__ == "__main__":
     try:
         app.launch(inbrowser=True, server_name="127.0.0.1", css=css_code)
     except TypeError:
-        # Fallback de sécurité Gradio 4
         app.launch(inbrowser=True, server_name="127.0.0.1")

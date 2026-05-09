@@ -1,3 +1,8 @@
 gradio>=4.0.0
 pandas
 plotly
+Pillow
+requests
+imagehash
+opencv-python
+deep-translator

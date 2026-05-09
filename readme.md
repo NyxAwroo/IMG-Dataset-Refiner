@@ -1,128 +1,89 @@
-# **📊 IMG Dataset Refiner (v3.0 Pro)**
+# **📊 IMG Dataset Refiner (v4.0 Pro)**
 
-**The ultimate tool for management, balancing, pre-processing, and AI assistance (VLM/LLM) for model training preparation (LoRA, SDXL, Flux)** [Installation](#bookmark=id.93ne4h8eoc6q) • [What's new in v3](#bookmark=id.uer02e3me5fz) • [Features](#bookmark=id.4b2b3rabed25) • [Workflow](#bookmark=id.o7c1e8yukqn)
+**The ultimate tool for management, balancing, pre-processing, batch editing, and AI assistance (VLM/LLM) for model training preparation (LoRA, SDXL, Flux)** [Installation](#bookmark=id.1cp2sfue8mje) • [What's new in v4.0](#bookmark=id.orop7sxzzoky) • [Features](#bookmark=id.o5ybkqotgy38) • [Workflow](#bookmark=id.rwtjzpocgan2)
 
 ## **🎯 About**
 
-**IMG Dataset Refiner** (formerly *Datasets Images EditSelect*) is a "desktop-like" software suite designed for AI model creators. Powered by **Gradio** with native JavaScript injections for optimal performance, this tool allows you to **visualize, pre-process, clean, analyze via AI, and export** your image datasets with surgical precision.
+**IMG Dataset Refiner** is a "desktop-like" software suite designed for AI model creators. Powered by **Gradio** with native JavaScript injections and custom CSS for optimal performance, this tool allows you to **visualize, massively edit, pre-process, clean, analyze via AI, and export** your image datasets with surgical precision.
 
-## **🚀 What's New in v3.0 Pro**
+## **🚀 What's New in v4.0 Pro**
 
-This major update transforms the tool into a true Data Engineering suite with visual and semantic analysis capabilities:
+This version brings unprecedented fluidity to the manual editing of your dataset:
 
-* **🤖 Local AI Assistant (Ollama / LM Studio):** Connect the tool to your local LLMs and VLMs (Llama 3, Qwen-VL, LLaVA) to auto-tag, track hallucinations, isolate concepts, or translate your tags into natural language (ideal for Flux).  
-* **🖼️ Duplicate Tracking & Pre-processing:** Visual duplicate scanner (Perceptual Hashing), intelligent face cropping (OpenCV), automatic transparency (Alpha) correction, and mass resizing/renaming.  
-* **🧬 Advanced Audits:** Co-occurrence matrix (Heatmap) to spot "Concept Bleeding", resolution distribution chart (Bucketing), and logical contradiction hunter.  
-* **🪄 Native Intellisense:** The viewer now integrates an ultra-fast smart autocomplete that suggests existing tags from your dataset as you type.  
-* **Pro Interface & Onboarding:** Added contextual help menus, quick start guides, and on-the-fly language switching (FR/EN) across all advanced modules.
+* **📚 Word Library (Custom Mass Batch):** A unique, interactive new module to keep a list of tags handy. Check them to Add, Remove, or Replace massively on a selection of images with a single click.  
+* **🌍 Live Translation Assistant:** Translate your captions in real-time, inject translated words on the fly, or convert an entire .txt file to English instantly thanks to deep-translator integration. The preview is displayed live right below your typing area.  
+* **⌨️ Absolute Productivity:** Navigate from image to image using PageUp/PageDown without ever having to click outside the text box. Save on the fly with Ctrl+S.  
+* **🗂️ Dynamic Sorting and Redesigned UI:** Sort your images from A to Z or Z to A, enjoy an interface freed from distracting native menus, and switch the entire application between French and English with a single click.
 
-*(Check the Changelog.md to review the ergonomic additions from v2.0 like Windows-style selection and auto-save).*
+## **⚙️ Key Features**
 
-## **📸 Gallery & Preview**
+### **🤖 AI Capabilities (Local Assistant via API)**
 
-### **🎬 Main Interface & Autocomplete**
+* **Ollama / LM Studio Integration:** Native support to run language models (LLM) and vision models (VLM) directly on the dataset via local API.  
+* **Auto-Tagging / Super OCR (VLM):** Full caption generation or precise extraction of text embedded in the image.  
+* **Reality Check & Hallucination Hunter (VLM):** The AI compares the text to the image and automatically removes tags that describe invisible elements.  
+* **Concept Isolator (VLM):** The AI describes the environment and ignores the central subject, ideal for preparing training data for character LoRAs.  
+* **Visual Translator (Booru ↔ Natural):** Intelligent conversion of tag lists into fluid, complete sentences (optimized for Flux and SD3).
 
-*(Insert your screenshots here)*
+### **🖼️ Duplicate Tracking & Pre-processing**
 
-### **🤖 Local AI Assistant & Profiling**
+* **Duplicates (ImageHash):** Customizable visual scanner detecting similar images (exact clones or crops) with a quick A/B deletion interface.  
+* **Smart Face Crop (OpenCV):** Automatic cropping centered on detected faces to optimize portraits.  
+* **Mass Resizing:** High-quality downscaling (Lanczos) to 512, 768, 1024, or 1536px, with automatic handling of transparent PNGs (white background).  
+* **Batch Renaming:** Clean, incremental renaming (prefix\_0001.jpg) of all images and their associated .txt files in one click.
 
-*(Insert your screenshots here)*
+### **🧬 Advanced Analytics & Quality**
 
-### **📈 Advanced Charts (Co-occurrence & Bucketing)**
+* **Co-occurrence Matrix (Heatmap):** Interactive Plotly chart analyzing the links between your top 20 tags to detect "Concept Bleeding".  
+* **Resolution Bucketing:** Scatter plot chart to visualize the resolution distribution of your raw images.  
+* **Contradiction Hunter:** Automatic detection of logical aberrations in your captions (e.g., "day" \+ "night" on the same image).  
+* **Orphan Tags:** Detection of unique keywords (often indicative of typos).
 
-*(Insert your screenshots here)*
+### **📁 Strategic Export**
 
-## **🌟 Main Features**
+* **Auto Balancing (Percentages):** Set appearance targets for your concepts (e.g., 50% man, 50% woman) and the "Greedy" algorithm will pick the perfect images to reach this ratio.  
+* **CivitAI Table Generation:** Export your statistics with one click to paste them directly onto your model page.
 
-### **🤖 AI Assistant (VLM & LLM)**
+## **🔄 Recommended Workflow**
 
-| Feature | Description |
-| :---- | :---- |
-| **Auto-Tagging / Super OCR** | The VLM reads the image from scratch, extracts visual details and embedded text (text: "..."). |
-| **Reality Check (Anti-Hallucination)** | The VLM verifies your existing tags and automatically removes those that are not in the image. |
-| **Concept Isolator (LoRA Special)** | The AI describes the environment but intentionally *ignores* the central subject to protect your Trigger Word. |
-| **Visual Translator (Flux/SD3)** | An LLM converts your Booru-style keyword lists into beautiful, fluent descriptive sentences. |
-| **Custom Prompt & Templates** | Create your own AI instructions and save them as "Templates". |
+1️⃣ **Pre-processing (🖼️ Tab)** └─ Clean visual duplicates, appropriately rename your files, and resize your images if necessary.  
+2️⃣ **AI Auto-Captioning (🤖 Tab)** └─ Let your local Vision model (e.g., LLaVA or Qwen) generate a solid first base of tags on your entire selection.  
+3️⃣ **Quick Editing & Translation (👁️ Tab)** └─ Navigate quickly with the keyboard (PageUp/PageDown). Use the **Live Translation** preview to write your ideas in your native language and insert them instantly in English.  
+4️⃣ **Mass Editing (⚡ Tab & 📚 Library)** └─ Fill your Custom Library with keywords. Select multiple images (Ctrl+Click), then add or remove these concepts in one click to standardize your dataset.  
+5️⃣ **Audits & Strategic Export (📈 & 📁 Tabs)** └─ Ensure there is no bias using the co-occurrence *Heatmap*. Enter your % targets, simulate the balance, and export a perfect, training-ready dataset\!
 
-### **🖼️ Image Pre-processing & Duplicates**
+## **⚙️ Installation**
 
-| Feature | Description |
-| :---- | :---- |
-| **Visual Duplicate Scanner** | Detects near-identical images (cropped, resized) via ImageHash with a tolerance slider. |
-| **Smart Face Crop** | Automatically crops the image around the face detected by OpenCV AI. |
-| **Alpha Standardization** | Spots transparent PNGs and replaces the background with white to avoid noise during training. |
-| **Batch Resize & Rename** | Resizing (Pillow), conversion (WebP/JPEG), and global folder renaming in 1 click. |
+1. Clone this repository or download the files.  
+2. Install the required dependencies via your terminal:  
+   pip install gradio pandas plotly imagehash opencv-python deep-translator
 
-### **👁️ Gallery, Viewer & Editor**
-
-| Feature | Description |
-| :---- | :---- |
-| **Ultra-Fast Selection** | \[Ctrl+Click\], \[Shift+Click\], \[Ctrl+A\] with dynamic highlighting handled client-side. |
-| **Intellisense** | Dynamic tag autocomplete during manual entry. |
-| **Custom Context Menu** | Right-click on the image for quick access to essential actions. |
-| **Batch Editing** | Regex, synonym replacement, spaces and commas cleanup on thousands of images at once. |
-
-### **📈 Statistics & Balancing**
-
-| Feature | Description |
-| :---- | :---- |
-| **Dataset Audits** | Co-occurrence heatmap, resolutions scatter plot, and logical contradictions detection (e.g., *day* AND *night*). |
-| **"Excel-like" Table & Drag/Drop** | Drag and drop to reorganize your tag priorities instantly. |
-| **Smart Export Assistant** | "Greedy" algorithm to balance image distribution according to precise target percentages. |
-
-## **🚀 Installation & Launch**
-
-### **Prerequisites**
-
-* **Python 3.10+**  
-* A local AI engine (e.g., **Ollama**, **LM Studio**, or **KoboldCPP**) for the AI Assistant features.  
-* Git
-
-### **Steps**
-
-1. **Clone the repository**  
-   git clone \[https://github.com/BC8069EA84/Datasets-Images-EditSelect.git\](https://github.com/BC8069EA84/Datasets-Images-EditSelect.git)  
-   cd Datasets-Images-EditSelect
-
-2. **Install dependencies** *(Updated for v3.0)*  
-   pip install gradio pandas plotly imagehash opencv-python requests Pillow
-
-3. **Launch the tool**  
+3. Run the script:  
    python lora\_manager.py
-
-4. **Access the interface** The interface will automatically open in your default browser (on 127.0.0.1).
-
-## **💡 How it works? (Recommended Workflow)**
-
-1️⃣ **Pre-processing (🖼️ Tab)** └─ Clean visual duplicates, rename your files, and crop/resize your images in bulk.  
-2️⃣ **Artificial Intelligence (🤖 Tab)** └─ Run auto-tagging via VLM, or convert your tags to sentences via LLM if you are targeting a Flux model.  
-3️⃣ **Audit & Statistics (📈 Tab)** └─ Use the *Reality Check* and generate advanced charts to ensure no unwanted tags "bleed" onto your concept (Concept Bleeding).  
-4️⃣ **Final Cleanup & Editing (👁️ and ⚡ Tabs)** └─ Complete your tags manually with Intellisense and use the Batch Editor to fix remaining typos.  
-5️⃣ **Strategic Export (📁 Tab)** └─ Enter your target %, simulate the balance, and export a perfect dataset ready for training\!
 
 ## **📦 Project Structure**
 
-IMG-Dataset-Refiner/    
-├── lora\_manager.py          \# Main entry point (Business logic and UI)    
-├── Changelog.md             \# Update history (v2.0 & v3.0 Pro)    
-├── en.json                  \# English language dictionary    
-├── fr.json                  \# French language dictionary    
-├── lora\_recipes.json        \# Saves of your export configurations  
-├── ai\_recipes.json          \# Saves of your Custom AI prompts  
-├── README.md                \# This documentation    
-├── requirements.txt         \# Python dependencies    
-└── screenshots demo/        \# Visual demonstration
+IMG-Dataset-Refiner/      
+├── lora\_manager.py          \# Main entry point (Business logic and UI)      
+├── Changelog.md             \# Update history (v4.0 Pro)      
+├── en.json                  \# English language dictionary      
+├── fr.json                  \# French language dictionary      
+├── lora\_recipes.json        \# Saves of your export configurations    
+├── ai\_recipes.json          \# Saves of your Custom AI prompts    
+├── README.md                \# This documentation (English)      
+├── README\_fr.md             \# French documentation      
+└── requirements.txt         \# Python dependencies
 
 ## **🎓 Use Cases**
 
 ✅ Preparation of demanding datasets for **LoRA fine-tuning** (SD 1.5, SDXL, Flux)  
-✅ Privacy-respecting **local auto-captioning**  
+✅ Privacy-respecting **local auto-captioning** (100% offline)  
 ✅ Mathematical balancing of **multi-concept** datasets  
-✅ Identification and resolution of **overfitting** issues via visual audits
+✅ Lightning-fast mass annotation via the **Custom Library** ✅ Identification and resolution of **overfitting** issues via visual audits
 
 ## **📄 License**
 
-Free to use and modify for your AI workflows.
+Free to use and modify for your personal and professional AI workflows.
 
 ## **🤝 Contribution**
 
@@ -132,4 +93,4 @@ Contributions are welcome\! Feel free to:
 * Propose improvements  
 * Submit Pull Requests
 
-**Forged with ❤️ for the AI community** [⬆️ Back to top](#bookmark=id.jsyvg8l7x16z)
+**Forged with ❤️ for the Generative AI community.**

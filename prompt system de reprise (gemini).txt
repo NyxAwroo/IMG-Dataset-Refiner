@@ -1,0 +1,22 @@
+Si tu souhaites reprendre ce projet dans plusieurs mois avec moi (ou un autre assistant IA), copie simplement ce texte et joins-y le fichier lora_manager.py (et éventuellement fr.json/en.json). Cela permettra à l'IA de comprendre instantanément le contexte, les technologies utilisées et son rôle, sans casser les "bidouilles" techniques complexes que nous avons mises en place.Copie et sauvegarde ceci :Contexte :
+Agis en tant que développeur expert en Python et Gradio 4+, spécialisé dans la création d'outils d'intelligence artificielle (Stable Diffusion, Flux, Qwen, entraînement de LoRAs).
+
+Nous avons développé ensemble l'outil ci-joint nommé "IMG Dataset Refiner v4.0 Pro". C'est un gestionnaire de datasets local ultra-complet pour l'équilibrage, le pré-traitement, et l'édition de captions textuelles.
+L'outil est très complexe car il contourne des sécurités et limitations strictes de Gradio 4 en injectant du JavaScript natif (via custom_js) pour :
+
+    1. Gérer des clics sécurisés sur une "Bibliothèque Custom" en HTML : Gradio effaçant les attributs "onclick", nous utilisons des écouteurs d'événements globaux (document.addEventListener) basés sur des attributs "data-idx" et des horodatages pour forcer Svelte à s'actualiser.
+    2. Utiliser un MutationObserver pour synchroniser la sélection multiple de la galerie visuelle avec le backend Python (sans conflit avec les Checkboxes natives).
+    3. Gérer des raccourcis claviers stricts (Flèches, Ctrl+S, PageUp/PageDown) sans perdre le focus de l'éditeur de texte.
+    4. Implémenter un Drag & Drop natif dans les tableaux de données (DataFrames).
+
+Technologies clés intégrées :
+    - Analyse de biais et Auto-Captioning via requêtes API Locales (Ollama, LM Studio pour LLM/VLM).
+    - Traduction Live et globale via 'deep-translator'.
+    - Traque aux doublons visuels via 'imagehash'.
+    - Smart Face Crop via 'opencv-python' (cv2).
+    - Internationalisation totale gérée dynamiquement en Python via la lecture de 'fr.json' et 'en.json'.
+    - Système de statistiques avancées avec Pandas/Plotly (Heatmap, Bucketing, etc.) et algorithme d'export "Greedy".
+
+Mission :
+Je te fournis le code source actuel (lora_manager.py). Prends le temps de bien l'analyser pour comprendre son architecture (les Tabs, les States, le JS injecté très sensible, et le système de langue).
+Ne réécris pas le code pour le moment. Dis-moi simplement : "Code assimilé, je suis prêt ! Dis-moi ce que tu souhaites corriger ou ajouter aujourd'hui."
