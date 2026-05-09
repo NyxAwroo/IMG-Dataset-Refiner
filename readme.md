@@ -1,10 +1,26 @@
 # **📊 IMG Dataset Refiner (v4.0 Pro)**
 
+<<<<<<< HEAD
 **The ultimate tool for management, balancing, pre-processing, batch editing, and AI assistance (VLM/LLM) for model training preparation (LoRA, SDXL, Flux)** [Installation](#bookmark=id.1cp2sfue8mje) • [What's new in v4.0](#bookmark=id.orop7sxzzoky) • [Features](#bookmark=id.o5ybkqotgy38) • [Workflow](#bookmark=id.rwtjzpocgan2)
 
 ## **🎯 About**
 
 **IMG Dataset Refiner** is a "desktop-like" software suite designed for AI model creators. Powered by **Gradio** with native JavaScript injections and custom CSS for optimal performance, this tool allows you to **visualize, massively edit, pre-process, clean, analyze via AI, and export** your image datasets with surgical precision.
+=======
+<div align="center">
+  <img src="https://github.com/NyxAwroo/IMG-Dataset-Refiner/raw/main/logotype/logo.jpg" alt="IMG Dataset Refiner Logo" width="250"/>
+</div>
+
+![English](https://img.shields.io/badge/Language-English-blue?style=flat-square) ![Français](https://img.shields.io/badge/Langue-Fran%C3%A7ais-blue?style=flat-square)
+
+**The ultimate tool for management, balancing, pre-processing, and AI assistance (VLM/LLM) for model training preparation (LoRA, SDXL, Flux)** [Installation](#bookmark=id.93ne4h8eoc6q) • [What's new in v3](#bookmark=id.uer02e3me5fz) • [Features](#bookmark=id.4b2b3rabed25) • [Workflow](#bookmark=id.o7c1e8yukqn)
+
+## **🎯 About**
+
+![Main Interface Preview](https://github.com/NyxAwroo/IMG-Dataset-Refiner/raw/main/screenshots%20demo/Firefox_Screenshot_2026-05-04T14-19-20.248Z.png)
+
+**IMG Dataset Refiner** (formerly *Datasets Images EditSelect*) is a "desktop-like" software suite designed for AI model creators. Powered by **Gradio** with native JavaScript injections for optimal performance, this tool allows you to **visualize, pre-process, clean, analyze via AI, and export** your image datasets with surgical precision.
+>>>>>>> 4bcea8be3048364bec6ecc527ff60c2e1177a736
 
 ## **🚀 What's New in v4.0 Pro**
 
@@ -93,4 +109,8 @@ Contributions are welcome\! Feel free to:
 * Propose improvements  
 * Submit Pull Requests
 
+<<<<<<< HEAD
 **Forged with ❤️ for the Generative AI community.**
+=======
+**Forged with ❤️ for the AI community** [⬆️ Back to top](#bookmark=id.jsyvg8l7x16z)
+>>>>>>> 4bcea8be3048364bec6ecc527ff60c2e1177a736
