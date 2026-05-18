@@ -1,4 +1,5 @@
 # **📊 IMG Dataset Refiner (v4.0 Pro)**
+**✨[Sponsor this project](https://www.paypal.com/paypalme/NyxAwroo)**
 ![English](https://img.shields.io/badge/Language-English-blue?style=flat-square) ![Français](https://img.shields.io/badge/Langue-Fran%C3%A7ais-blue?style=flat-square)
 
 <div align="center">
